@@ -1,5 +1,6 @@
 {
   "name": "omnigami-product-film",
+  "displayName": "omnigami Product film",
   "version": "1.0.0",
   "description": "Make a 28-second launch video for a product from its real screens, in five acts (the problem, the promise, four proof steps of the product in action, the result, the ask), with a big cursor, a moving camera, captions and sound, in square, wide and tall. Use when the user asks for a launch video, product video, promo, demo video, teaser or motion graphics for their product, app or website.",
   "author": {
@@ -8,6 +9,10 @@
   },
   "homepage": "https://omnigami.ai/skills/product-film",
   "repository": "https://github.com/omnigami-ai/product-film",
+  "documentationUrl": "https://github.com/omnigami-ai/product-film#readme",
+  "supportUrl": "https://omnigami.ai/#questions",
+  "privacyPolicyUrl": "https://omnigami.ai/legal/privacy",
+  "termsOfServiceUrl": "https://omnigami.ai/legal/terms",
   "license": "SEE LICENSE IN LICENSE.md",
   "keywords": [
     "video",
