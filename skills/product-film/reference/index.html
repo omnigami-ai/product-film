@@ -1,0 +1,682 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lamplit · Product film · Fictional company example</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0e1220; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+</style>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="kit.js"></script>
+<script>
+// The product film's reference: Lamplit's launch film, 34 s at 120 BPM in five acts (hook,
+// promise, proof, payoff, ask), at 60 fps, in wide, square and tall. Lamplit is a fictional
+// company made for omnigami's examples; every screen is a real capture of its working
+// dashboard (cast/lamplit/app), made by scripts/screens.mjs from plans/lamplit.json
+// (assets/screens/, with screens.json saying where every element sits).
+//
+// How it's built, and what a new film changes (style.md has the grammar):
+//   KEEP    the grid, the shapes, the toolkit (type, cursor, page camera, colour fields,
+//           caption column), the drawing, the music
+//   ADAPT   the words, the colours, the mark, the screens and the four proof steps (PROOF:
+//           which capture when, the camera's framings, the clicks and the regions that change)
+//   REPLACE nothing is drawn for the product: every screen is the product's own
+(() => {
+  const { clamp, lerp, spring, loadFont, loadImage, roundRect, motion: M } = window.kit;
+  const FPS = 60, F = 1 / 12, BPM = 120, BEAT = 60 / BPM, BAR = 4 * BEAT, DURATION = 34;
+  const at = (bar, beat = 0) => bar * BAR + beat * BEAT; // a time on the beat grid
+  // ADAPT: when each proof step, the payoff and the ask start (s). Each step gets a beat to read
+  // its caption, a move, the action, and a hold on the result before the next one. Pauses go only
+  // where the viewer needs them (the founder, 2026-10-21): words to read, and room to find a control
+  // after a big move; the product's own working keeps its pace (style.md, "Pauses").
+  const ST = { s1: 10, s2: 13.5, s3: 15.5, s4: 20.5, pay: 26, ask: 29 };
+  // the turn and the promise: "Or one line." reads for 1.25 s before the mark opens into the command
+  // line; the typed command holds half a second before it's sent; the name and the promise hold to
+  // read (about 2 s) before the light floods
+  const TU = { line: at(2), born: at(2, 2), out: at(2, 2.5), grow: at(2, 2.75), send: at(3, 2), close: at(3, 2.25), flood: at(4, 3) + 2 * F, proof: at(5) };
+  const SHAPES = { '16:9': [1920, 1080], '1:1': [1440, 1440], '9:16': [1080, 1920] };
+  let W = 1920, H = 1080, U = 10.8, tall = false, wide = true; // U: 1% of the frame's short side
+
+  const canvas = document.getElementById('c');
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+
+  // ---------- ADAPT: the product's colours (cast/lamplit/brand.md) ----------
+  // Dark first, like the product: its ink, its warm text, and one light, amber, which means
+  // only "just arrived", "the problem" and "the action".
+  const NIGHT = '#080B14', INK = '#0E1220', INK2 = '#151A2B', LINE = '#2A3150', TEXT = '#ECEAE3', MUTED = '#8D93A8', AMBER = '#FFB23F';
+  const SANS = (w) => (s) => `${w} ${s}px "Instrument Sans"`;
+  const MONO = (w) => (s) => `${w} ${s}px "JetBrains Mono"`;
+
+  // ---------- ADAPT: the words, as named fields (sources in STORY.md) ----------
+  const DEFAULTS = {
+    hook1: 'Cron on a box.', hook2: 'Retries by hand.', hook3: 'Pages at 3 a.m.',
+    turn: 'Or one line.', prompt: 'npx lamplit deploy',
+    name: 'lamplit', promise: 'Every job, in the light.',
+    step1: 'See every run.', step2: 'Find why it failed.', step3: 'Replay the step that failed.', step4: 'Schedule it in plain English.',
+    payoff1: 'Every job.', payoff2: 'Every run.', payoff3: 'In the light.',
+    url: 'lamplit.example', install: 'npm i lamplit', tagline: 'Free for 10k runs a month.',
+  };
+  const FIELDS = [
+    { id: 'hook1', type: 'text', label: 'Hook, line 1', maxLength: 18 },
+    { id: 'hook2', type: 'text', label: 'Hook, line 2', maxLength: 18, help: 'All three lines are the old way, and all are struck through.' },
+    { id: 'hook3', type: 'text', label: 'Hook, line 3', maxLength: 18 },
+    { id: 'turn', type: 'text', label: 'The turn', maxLength: 16 },
+    { id: 'prompt', type: 'text', label: 'The one line', maxLength: 36, help: 'The command or request the product starts from.' },
+    { id: 'promise', type: 'text', label: 'Promise', maxLength: 44 },
+    { id: 'step1', type: 'text', label: 'Step 1', maxLength: 32, help: 'Each proof step says what it does for the viewer.' },
+    { id: 'step2', type: 'text', label: 'Step 2', maxLength: 32 },
+    { id: 'step3', type: 'text', label: 'Step 3', maxLength: 32 },
+    { id: 'step4', type: 'text', label: 'Step 4', maxLength: 32 },
+    { id: 'payoff1', type: 'text', label: 'Payoff, 1', maxLength: 16 },
+    { id: 'payoff2', type: 'text', label: 'Payoff, 2', maxLength: 16 },
+    { id: 'payoff3', type: 'text', label: 'Payoff, 3', maxLength: 16 },
+    { id: 'url', type: 'text', label: 'Address', maxLength: 24 },
+    { id: 'install', type: 'text', label: 'Line to type', maxLength: 32 },
+    { id: 'tagline', type: 'text', label: 'Tagline', maxLength: 32 },
+  ];
+  let V = DEFAULTS; // set from seek's arguments on every frame
+
+  // ---------- KEEP: assets, the real screens ----------
+  const A = { set: null, img: {}, mark: null };
+  const cap = (name) => { const c = A.set.captures[name]; return { img: A.img[c.file], rect: c.rect, scale: c.scale }; };
+  const R = (state) => A.set.rects[state];
+
+  // ---------- KEEP: the toolkit. Type: words slam in and arrive in the accent ----------
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const mix = (a, b, p) => { const x = hex(a), y = hex(b); return `rgb(${x.map((v, i) => Math.round(lerp(v, y[i], clamp(p)))).join(',')})`; };
+  const steps = (t, t0) => (t - t0) / F; // time since t0 in steps of 1/12 s, the choreography's unit
+  const out3 = (p) => 1 - (1 - clamp(p)) ** 3;
+  // new words arrive in the accent and cool to their colour: a quarter second lit, then settling
+  const arrive = (t, t0, colour) => { const d = steps(t, t0); return d < 2.5 ? AMBER : d < 5 ? mix(AMBER, colour, 1 - (1 - (d - 2.5) / 2.5) ** 3) : colour; }; // cools fast, settles soft (a linear cool stopped dead)
+  function setText(c, font, size, tracking = -0.03) { c.font = font(size); c.letterSpacing = `${tracking * size}px`; c.textBaseline = 'alphabetic'; c.textAlign = 'left'; }
+  const widthOf = (c, font, size, s, tracking) => { setText(c, font, size, tracking); return c.measureText(s).width; };
+  const capOf = (size) => size * 0.7; // Instrument Sans' cap height
+  function wrap(c, text, font, size, maxW, tracking) {
+    const lines = []; let cur = '';
+    for (const w of String(text).split(' ')) { const next = cur ? `${cur} ${w}` : w; if (cur && widthOf(c, font, size, next, tracking) > maxW) { lines.push(cur); cur = w; } else cur = next; }
+    return [...lines, cur];
+  }
+  // a word slammed in: 3 frames from oversized and soft to set
+  function slam(c, s, x, y, font, size, t, t0, colour, tracking) {
+    const d = steps(t, t0);
+    if (d < 0) return;
+    const e = out3(d / 2.6), k = lerp(1.16, 1, e), blur = 10 * (1 - e) ** 2, alpha = lerp(0.55, 1, Math.sqrt(e));
+    setText(c, font, size, tracking);
+    const w = c.measureText(s).width;
+    c.save(); c.globalAlpha *= alpha; if (blur > 0.2) c.filter = `blur(${blur * U / 10}px)`;
+    c.translate(x + w / 2, y - capOf(size) / 2); c.scale(k, k);
+    c.fillStyle = colour; c.fillText(s, -w / 2, capOf(size) / 2); c.restore();
+  }
+  // a line whose words land one after another
+  function line(c, text, x, y, font, size, t, t0, { colour = TEXT, stagger = F, align = 'left', tracking } = {}) {
+    const words = String(text).split(' '), space = widthOf(c, font, size, ' ', tracking);
+    const widths = words.map((w) => widthOf(c, font, size, w, tracking));
+    const total = widths.reduce((a, b) => a + b, 0) + space * (words.length - 1);
+    let wx = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
+    words.forEach((w, i) => { slam(c, w, wx, y, font, size, t, t0 + i * stagger, arrive(t, t0 + i * stagger, colour), tracking); wx += widths[i] + space; });
+    return total;
+  }
+  // the mark: Lamplit's flame (assets/brand/mark.svg), centred on (x, y), `size` tall
+  function drawMark(c, x, y, size, alpha = 1) {
+    if (alpha <= 0) return;
+    c.save(); c.globalAlpha *= alpha; c.drawImage(A.mark, x - size / 2, y - size / 2, size, size); c.restore();
+  }
+
+  // ---------- KEEP: the cursor, big, with character ----------
+  // it tilts toward where it's going and shrinks while pressed
+  const ARROW = (c) => { c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 46); c.lineTo(11, 35); c.lineTo(19, 53); c.lineTo(27, 49.5); c.lineTo(19, 32); c.lineTo(34, 32); c.closePath(); };
+  function drawCursor(c, x, y, size, vx, pressed, alpha = 1) {
+    if (alpha <= 0) return;
+    const tilt = (-8 + clamp(vx / (W * 1.2), -1, 1) * 16) * Math.PI / 180;
+    c.save(); c.globalAlpha *= alpha; c.translate(x, y); c.rotate(tilt); c.scale(size / 53 * (pressed ? 0.84 : 1), size / 53 * (pressed ? 0.84 : 1));
+    ARROW(c); c.shadowColor = 'rgba(0,0,0,0.45)'; c.shadowBlur = 12; c.shadowOffsetY = 5;
+    c.lineJoin = 'round'; c.lineWidth = 4.5; c.strokeStyle = TEXT; c.stroke(); c.shadowColor = 'transparent';
+    c.fillStyle = NIGHT; c.fill(); c.restore();
+  }
+  // cursor keys: [t, x, y] in page coordinates (they ride the camera); a move eases out, fast first
+  function cursorOn(keys, t) {
+    if (t <= keys[0][0]) return [keys[0][1], keys[0][2]];
+    for (let i = 1; i < keys.length; i++) if (t <= keys[i][0]) {
+      const [ta, xa, ya] = keys[i - 1], [tb, xb, yb] = keys[i], e = M.snap((t - ta) / (tb - ta));
+      return [lerp(xa, xb, e), lerp(ya, yb, e)];
+    }
+    const e = keys[keys.length - 1]; return [e[1], e[2]];
+  }
+
+  // ---------- KEEP: the page camera, captures through it, and colour fields ----------
+  // keys: [t, x, y, k, ease]: the page point (CSS px) at the frame's centre and the scale (frame
+  // px per CSS px). Scale moves in log space. Every travel is fast out of the blocks and settles
+  // long and soft ('glide'); a whip is back-loaded and lands soft; 'drift' is the slow breath of a hold.
+  const EASE = {
+    cut: () => 1,
+    glide: (p) => M.snap(p),
+    whip: (p) => { const q = p ** 1.35; return q < 0.5 ? 4 * q ** 3 : 1 - (-2 * q + 2) ** 3 / 2; },
+    // a drift starts moving at once and settles soft: after a glide or a whip lands, an in-out drift sat still for
+    // several frames, then crept on (a park, then a creep)
+    drift: (p) => 1 - (1 - clamp(p)) ** 2,
+  };
+  function camOn(keys, t) {
+    let a = keys[0], b = keys[0];
+    for (let i = 1; i < keys.length; i++) { if (t < keys[i][0]) { b = keys[i]; break; } a = b = keys[i]; }
+    const q = b === a ? 1 : clamp((t - a[0]) / (b[0] - a[0])), p = b === a ? 1 : EASE[b[4]](q);
+    return { x: lerp(a[1], b[1], p), y: lerp(a[2], b[2], p), k: Math.exp(lerp(Math.log(a[3]), Math.log(b[3]), p)) };
+  }
+  const toFrame = (cam, x, y) => [(x - cam.x) * cam.k + W / 2, (y - cam.y) * cam.k + H / 2];
+  // the camera framing that shows a page rect whole, with a margin (share of the rect)
+  const fitK = ([, , w, h], mx = 0.06, my = 0.08) => Math.min(W / (w * (1 + 2 * mx)), H / (h * (1 + 2 * my)));
+  const centre = ([x, y, w, h]) => [x + w / 2, y + h / 2];
+  // a capture through the camera; `alpha` dissolves it in, `box` limits it to one region (page px)
+  function drawCap(c, cam, name, { alpha = 1, box, dy = 0 } = {}) {
+    if (alpha <= 0) return;
+    const { img, rect: [x, y, w, h], scale } = cap(name), [fx, fy] = toFrame(cam, x, y);
+    c.save(); c.globalAlpha *= alpha;
+    if (box) {
+      const [bx, by] = toFrame(cam, box[0], box[1] + dy);
+      c.drawImage(img, (box[0] - x) * scale, (box[1] - y) * scale, box[2] * scale, box[3] * scale, bx, by, box[2] * cam.k, box[3] * cam.k);
+    } else c.drawImage(img, fx, fy, w * cam.k, h * cam.k);
+    c.restore();
+  }
+  // a capture's colour at a page point, and a region's own ground (sampled just inside its top-left corner), to cover
+  // what changes before it lands
+  const SAMPLE = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  function colourAt(name, px, py) {
+    const { img, rect: [x, y], scale } = cap(name);
+    SAMPLE.clearRect(0, 0, 1, 1); SAMPLE.drawImage(img, (px - x) * scale, (py - y) * scale, 1, 1, 0, 0, 1, 1);
+    const [r, gg, b] = SAMPLE.getImageData(0, 0, 1, 1).data; return `rgb(${r},${gg},${b})`;
+  }
+  // the region's own ground: the commonest colour along its edges (a corner can sit on a border or a pill)
+  const GROUNDS = new Map();
+  function groundOf(name, [bx, by, bw, bh]) {
+    const key = `${name} ${bx} ${by} ${bw} ${bh}`;
+    if (!GROUNDS.has(key)) {
+      const n = new Map();
+      for (let i = 0; i <= 12; i++) for (const yy of [by + 1, by + bh - 1]) { const c = colourAt(name, bx + 1 + (i / 12) * (bw - 2), yy); n.set(c, (n.get(c) || 0) + 1); }
+      GROUNDS.set(key, [...n.entries()].sort((a, b) => b[1] - a[1])[0][0]);
+    }
+    return GROUNDS.get(key);
+  }
+  function fillBox(cam, [bx, by, bw, bh], colour) { const [fx, fy] = toFrame(cam, bx, by); g.fillStyle = colour; g.fillRect(fx, fy, bw * cam.k, bh * cam.k); }
+  function pageRect(c, cam, [x, y, w, h], r) { const [fx, fy] = toFrame(cam, x, y); roundRect(c, fx, fy, w * cam.k, h * cam.k, r * cam.k); }
+  // a field of colour with one element cut out of it: the element floats on the field
+  function field(c, cam, colour, alpha, rect, r) {
+    if (alpha <= 0) return;
+    c.save(); c.globalAlpha = alpha;
+    const [fx, fy] = toFrame(cam, rect[0], rect[1]);
+    c.beginPath(); c.rect(0, 0, W, H);
+    c.roundRect(fx, fy, rect[2] * cam.k, rect[3] * cam.k, Math.min(r * cam.k, rect[3] * cam.k / 2));
+    c.fillStyle = colour; c.fill('evenodd'); c.restore();
+  }
+  function lift(c, cam, rect, r, alpha) { // the soft shadow under a floating element
+    if (alpha <= 0) return;
+    c.save(); c.globalAlpha = alpha; c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 6 * U; c.shadowOffsetY = 2.2 * U;
+    pageRect(c, cam, rect, r); c.fillStyle = INK; c.fill(); c.restore();
+  }
+
+  // ---------- KEEP: the story beside the product: a caption column (wide) or band (square, tall) ----------
+  // During the proof the frame splits: the caption on its colour, the product beside or below
+  // it. Each step lands a beat before its action, numbered, so the proof reads as one story.
+  const STEPS = () => [[ST.s1, V.step1], [ST.s2, V.step2], [ST.s3, V.step3], [ST.s4, V.step4]];
+  function captionLayout() {
+    if (wide) return { cap: [0, 0, W * 0.34, H], view: [W * 0.34, 0, W * 0.66, H] };
+    const band = H * (tall ? 0.2 : 0.24);
+    return { cap: [0, 0, W, band], view: [0, band, W, H - band] };
+  }
+  // the first step's caption sits on the amber the promise flooded; the rest on the product's panel ink
+  function drawCaption(t, rect) {
+    const [x, y, w, h] = rect, all = STEPS();
+    let i = -1; for (let k = 0; k < all.length; k++) if (t >= all[k][0]) i = k;
+    const flood = i <= 0, ground = flood ? AMBER : INK2, ink = flood ? NIGHT : TEXT;
+    g.fillStyle = ground; g.fillRect(x, y, w, h);
+    if (i < 0) return;
+    const [t0, text] = all[i], pad = wide ? w * 0.16 : 8 * U;
+    const size = wide ? 6.4 * U : 5.6 * U, lines = wrap(g, text, SANS(650), size, w - pad * 1.6);
+    const blockH = size * 0.75 + 4.5 * U + (lines.length - 1) * size * 1.08;
+    const top = y + h / 2 - blockH / 2 + (wide ? 0 : size * 0.2);
+    setText(g, MONO(500), 2.4 * U, 0); g.fillStyle = flood ? 'rgba(8,11,20,0.6)' : AMBER;
+    g.fillText(String(i + 1).padStart(2, '0'), x + pad, top);
+    lines.forEach((l, j) => line(g, l, x + pad, top + 4.5 * U + size * 0.72 + j * size * 1.08, SANS(650), size, t, t0 + j * 3 * F, { colour: ink }));
+  }
+  // draw a scene inside part of the frame, as if that part were the whole frame
+  function inPart([x, y, w, h], draw) {
+    const fw = W, fh = H;
+    g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.translate(x, y); W = w; H = h;
+    try { draw(); } finally { W = fw; H = fh; g.restore(); }
+  }
+
+  // ============================== ADAPT: the acts ==============================
+
+  // ---- hook (bars 0–1): the old way, struck through ----
+  function hook(t) {
+    g.fillStyle = INK; g.fillRect(0, 0, W, H);
+    const x = (wide ? 11.2 : 8) * U;
+    const size = Math.min(15 * U, ...[V.hook1, V.hook2, V.hook3].map((s) => (W - 2 * x) / widthOf(g, SANS(700), 100, s) * 100));
+    const lead = size * 1.02, y0 = H / 2 - lead + capOf(size) / 2;
+    const lines = [[V.hook1, at(0, 0)], [V.hook2, at(0, 2)], [V.hook3, at(1, 0)]];
+    lines.forEach(([s, t0], i) => {
+      if (t < t0) return;
+      const w = line(g, s, x, y0 + i * lead, SANS(700), size, t, t0, { colour: TEXT });
+      // the old way, every line of it, struck through on the third beat of bar 1, a line a step
+      const s0 = at(1, 2) + i * F, p = out3(steps(t, s0) / 3);
+      if (p > 0) { g.fillStyle = AMBER; g.fillRect(x - 0.6 * U, y0 + i * lead - capOf(size) * 0.46, (w + 1.2 * U) * p, size * 0.085); }
+    });
+  }
+
+  // ---- the turn and the promise (bars 2–3): one line, typed; then the name ----
+  // The mark grows under "Or one line." (it fades up as it grows: never a lone dot), opens into
+  // the product's own command line, types it and sends it.
+  function turn(t) {
+    g.fillStyle = NIGHT; g.fillRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2;
+    const out = out3(steps(t, TU.out) / 2.5);
+    if (out < 1) {
+      g.save(); g.globalAlpha = 1 - out; g.translate(0, -out * 4 * U);
+      line(g, V.turn, cx, cy - 3 * U, SANS(700), Math.min(11 * U, W * 0.84 / widthOf(g, SANS(700), 100, V.turn) * 100), t, TU.line, { colour: TEXT, align: 'center' });
+      g.restore();
+    }
+    const { born, grow, send, close } = TU;
+    if (t < born) return;
+    const ms = 7.4 * U, s0 = M.settle(t - born, 0.45);
+    const font = MONO(500), ps = Math.min(4.6 * U, (W * 0.88 - 14 * U) / widthOf(g, font, 100, `$ ${V.prompt}`, 0) * 100), textW = widthOf(g, font, ps, `$ ${V.prompt}`, 0);
+    const barW = textW + 14 * U, barH = 12 * U;
+    const open = t < close ? M.snap((t - grow) / 0.6) : 1 - M.snap((t - close) / 0.3);
+    const w = lerp(ms, barW, clamp(open)), h = lerp(ms, barH, clamp(open));
+    const rise = t < grow ? 0 : t < close ? clamp(open) : 1; // up to the line's centre, and it stays there
+    const bx = cx - w / 2, by = lerp(cy + 9 * U, cy, rise) - h / 2;
+    if (open > 0.02) {
+      g.save(); g.globalAlpha *= clamp(open * 3); roundRect(g, bx, by, w, h, 2.2 * U); g.fillStyle = INK2; g.fill(); g.lineWidth = 0.18 * U; g.strokeStyle = LINE; g.stroke(); g.restore();
+    }
+    const pressed = t >= send && t < send + 2 * F;
+    const mk = (pressed ? 0.88 : 1) * lerp(0.6, 1, s0);
+    const mcx = open > 0.02 ? lerp(cx, bx + w - 4.4 * U, clamp(open)) : cx, mcy = by + h / 2;
+    drawMark(g, mcx, mcy, lerp(ms, ms * 0.82, clamp(open)) * mk, M.inOut((t - born) / 0.25));
+    if (t >= grow && t < close) {
+      const typeFrom = TU.grow + 3 * F, full = `$ ${V.prompt}`, n = clamp(Math.floor(steps(t, typeFrom) * 2) + 2, 0, full.length);
+      setText(g, font, ps, 0);
+      let x = bx + 3.6 * U;
+      for (let i = 0; i < n; i++) {
+        const ch = full[i], cw = g.measureText(ch).width;
+        g.fillStyle = i === 0 ? AMBER : arrive(t, typeFrom + ((i - 2) / 2) * F, TEXT); g.fillText(ch, x, mcy + capOf(ps) / 2); x += cw;
+      }
+      if (n < full.length || Math.floor(t * 2) % 2 === 0) { g.fillStyle = AMBER; g.fillRect(x + 0.3 * U, mcy - ps * 0.55, 0.32 * U, ps * 1.1); }
+    }
+  }
+  // the lockup: the mark beside the name, the promise under it
+  function lockupGeom(size) {
+    const ms = size * 1.05, gap = size * 0.2, nameW = widthOf(g, SANS(600), size, V.name, -0.04);
+    const total = ms + gap + nameW;
+    return { ms, gap, nameW, x: W / 2 - total / 2 };
+  }
+  function promise(t) {
+    g.fillStyle = NIGHT; g.fillRect(0, 0, W, H);
+    const t0 = TU.close + 3 * F, size = 13 * U, L = lockupGeom(size), cy = H / 2 - 2 * U;
+    const flood = TU.flood, fp = clamp((t - flood) / (TU.proof - flood - F)), fe = fp ** 1.7;
+    // the mark carries on from the turn: same centre, same size, then grows into the lockup
+    const m = M.settle(t - t0, 0.5), mx = lerp(W / 2, L.x + L.ms / 2, m), my = lerp(H / 2, cy - capOf(size) / 2, m), msz = lerp(7.4 * U, L.ms, m);
+    // the name and the promise leave as the flood starts (a lift and a fade over 0.15 s), never in one frame
+    const wa = 1 - M.out(clamp((t - flood) / 0.15));
+    if (wa > 0) {
+      g.save(); g.globalAlpha *= wa; g.translate(0, -1.5 * U * (1 - wa));
+      slam(g, V.name, L.x + L.ms + L.gap, cy, SANS(600), size, t, t0 + 0.3, arrive(t, t0 + 0.3, TEXT), -0.04); // once the mark has made room
+      const ps = 4.4 * U * (tall ? 1.15 : 1);
+      wrap(g, V.promise, SANS(500), ps, W * 0.86, -0.01).forEach((l, i) => line(g, l, W / 2, cy + 9.5 * U + i * ps * 1.3, SANS(500), ps, t, t0 + (5 + i * 3) * F, { colour: MUTED, align: 'center', tracking: -0.01 }));
+      g.restore();
+    }
+    // on the last beat before the proof everything goes but the mark's light, which floods the frame amber
+    if (fp > 0) {
+      const w = lerp(L.ms * 0.7, W * 1.3, fe), h = lerp(L.ms * 0.8, H * 1.3, fe), fx = lerp(mx, W / 2, fe), fy = lerp(my, H / 2, fe);
+      roundRect(g, fx - w / 2, fy - h / 2, w, h, lerp(L.ms * 0.35, 0, fe)); g.fillStyle = AMBER; g.fill();
+    }
+    drawMark(g, mx, my, msz, 1 - clamp(fp * 3));
+  }
+
+  // ---- the proof (bars 5–13): four steps on the product's real screens ----
+  // ADAPT: when each thing happens, the camera's framings (page rects), the clicks and the
+  // regions that change. A click shows the app's own pressed state for a few frames; a page
+  // the app opens arrives on a cut, as the app shows it; a state that changes in place changes
+  // only inside its own elements (PATCH), never as a whole-screen dissolve.
+  const P = {
+    rowClick: ST.s1 + 2.5, // the failed run's row
+    logs: ST.s2, // down to the logs
+    replay: ST.s3 + 1.75, // Replay from write-ledger: the caption (5 words) reads and the eye finds the button after the glide
+    running: ST.s3 + 2.75,
+    done: ST.s3 + 3.75,
+    sched: ST.s4, // the schedules page
+    field: ST.s4 + 1.5, // the field is clicked: a page change, so the caption reads and the eye finds the field first
+    type: ST.s4 + 1.75, // the phrase types in, a letter a step
+  };
+  // the regions of the replay page that change between queued, running and succeeded (page px,
+  // measured in the captures): the status pill, the meta line (to its version, which a longer duration pushes right), the tabs, the run card
+  const PATCH = [[486, 104, 410, 32], [266, 149, 934, 19], [256, 193, 421, 20], [434, 220, 23, 6], [246, 234, 852, 282]];
+  const CARD = PATCH[4];
+  // the elements inside those regions (and the details and sidebar beside them) that change, measured in the captures,
+  // top to bottom: they go and come one by one, the rest holds still
+  const CHANGES = {
+    'queued>running': [[147, 71, 8, 11], [489, 106, 405, 28], [266, 149, 934, 19], [256, 193, 421, 20], [434, 220, 23, 6], [264, 296, 816, 46], [1249, 303, 75, 17], [19, 325, 12, 12], [155, 326, 46, 12], [459, 466, 435, 34], [264, 475, 16, 16], [1048, 477, 32, 11], [1253, 470, 58, 12], [1252, 530, 32, 11]],
+    'running>succeeded': [[147, 71, 8, 11], [1235, 103, 129, 34], [489, 106, 400, 28], [553, 152, 8, 11], [569, 152, 8, 11], [256, 193, 421, 20], [434, 220, 23, 6], [264, 296, 816, 46], [1249, 303, 93, 17], [19, 325, 12, 12], [116, 328, 15, 8], [139, 325, 62, 13], [459, 466, 435, 34], [264, 475, 16, 16], [1048, 477, 7, 11], [1064, 477, 7, 11], [1253, 500, 58, 12], [1253, 530, 8, 11], [1269, 530, 7, 11], [309, 550, 106, 11]],
+  };
+  // the logs panel under the card (its line count; the lines that change, to the old bottom edge; the new edge)
+  const LOGS = [246, 520, 852, 380];
+  const LOG = {
+    'queued>running': { count: [304, 546, 126, 18], out: [250, 584, 844, 80], end: 753 },
+    'running>succeeded': { count: [304, 546, 126, 18], out: [250, 696, 844, 56], end: 863 },
+  };
+  for (const L of Object.values(LOG)) L.strips = Math.ceil((L.end - L.out[1]) / 22);
+  const typedLen = () => (A.set.typed.sched || '').length;
+  function screenAt(t) {
+    if (t < P.rowClick) return 'runs';
+    if (t < P.rowClick + 0.1) return 'runs-pressed-01';
+    if (t < P.replay) return 'failed';
+    if (t < P.replay + 0.1) return 'replay-pressed-01';
+    if (t < P.sched) return 'queued';
+    return 'schedules';
+  }
+  function proof(t) {
+    const L = captionLayout();
+    // the product slides in over the amber the promise flooded, so the split arrives as one move, not a cut
+    const e = M.snap(clamp((t - ST.s1) / 0.5)), [vx, vy, vw, vh] = L.view;
+    if (e < 1) { g.fillStyle = AMBER; g.fillRect(0, 0, W, H); }
+    inPart(wide ? [vx + vw * (1 - e), vy, vw, vh] : [vx, vy + vh * (1 - e), vw, vh], () => proofScene(t));
+    drawCaption(t, L.cap);
+  }
+  function proofScene(t) {
+    g.fillStyle = INK; g.fillRect(0, 0, W, H);
+    g.imageSmoothingQuality = 'high';
+    const rr = R('runs'), rf = R('failed'), rs = R('schedule'), row = rr.row, err = rf.errors[0];
+    // framings (page px): close enough to read, wide enough to keep the action whole. Tall
+    // frames a narrower part of each screen, so the UI keeps its size and fills the frame.
+    const pick = (w, t) => (tall ? t : w);
+    const laneView = pick([248, 136, 760, 269], [248, 136, 540, 269]), rowView = pick([249, 470, 760, 150], [249, 470, 520, 150]);
+    const headView = pick([248, 60, 848, 370], [248, 60, 560, 370]), logView = pick([249, err[1] - 50, 846, 120], [380, err[1] - 50, 700, 120]);
+    const replayView = pick([690, 64, 726, 150], [1000, 64, 416, 150]), cardView = pick([248, 60, 848, 460], [248, 60, 580, 460]);
+    const fieldView = pick([262, 175, 560, 130], [262, 175, 520, 130]), schedView = pick([262, 150, 1140, 380], [560, 180, 856, 360]);
+    const k = (r, mx, my) => fitK(r, mx, my);
+    const cam = camOn([
+      [ST.s1, ...centre(laneView), k(laneView) * 1.05, 'cut'],
+      [ST.s1 + 1.0, ...centre(laneView), k(laneView), 'drift'],
+      [ST.s1 + 1.9, ...centre(rowView), k(rowView), 'glide'],
+      [P.rowClick + 0.1, ...centre(rowView), k(rowView) * 1.02, 'drift'],
+      [P.rowClick + 0.101, ...centre(headView), k(headView) * 1.04, 'cut'],
+      [P.logs - 0.05, ...centre(headView), k(headView), 'drift'],
+      [P.logs + 0.6, ...centre(logView), k(logView, 0.06, 0.1), 'whip'],
+      [ST.s3 - 0.1, ...centre(logView), k(logView, 0.06, 0.1) * 1.03, 'drift'],
+      [ST.s3 + 0.75, ...centre(replayView), k(replayView), 'glide'],
+      [P.replay + 0.1, ...centre(replayView), k(replayView) * 1.02, 'drift'],
+      [P.replay + 0.101, ...centre(cardView), k(cardView) * 1.05, 'cut'],
+      [P.running - 0.1, ...centre(cardView), k(cardView), 'glide'],
+      [P.sched, ...centre(cardView), k(cardView) * 1.02, 'drift'],
+      [P.sched + 0.001, ...centre(fieldView), k(fieldView) * 1.04, 'cut'],
+      [P.type + 1.75, ...centre(fieldView), k(fieldView), 'drift'],
+      [P.type + 2.6, ...centre(schedView), k(schedView, 0.04, 0.06), 'glide'],
+      [ST.pay, ...centre(schedView), k(schedView, 0.04, 0.06) * 1.02, 'drift'],
+    ], t);
+    const base = screenAt(t);
+    drawCap(g, cam, base);
+    // the replay advances in place: only the changed regions take the next state
+    // Each element that changes goes (0.1 s, a lift and a fade), then its new state comes (0.18 s, a short rise), top to
+    // bottom, on its own ground; the run card takes its new state whole underneath, its lit edge fading over. Never two
+    // states laid over each other mid-crossfade, and never the card blanked out.
+    if (base === 'queued') {
+      for (const [t0, from, to] of [[P.running, 'queued', 'running'], [P.done, 'running', 'succeeded']]) {
+        if (t < t0) continue;
+        for (const box of PATCH) drawCap(g, cam, to, { box }); // the new state, where nothing animates
+        const pr = M.inOut((t - t0) / 0.3);
+        if (pr < 1) { // the card's edge (a ring: its inside is the new state's)
+          const [cx, cy, cw, ch] = CARD, [fx, fy] = toFrame(cam, cx, cy), [ix, iy] = toFrame(cam, cx + 3, cy + 3);
+          g.save(); g.beginPath(); g.rect(fx, fy, cw * cam.k, ch * cam.k); g.rect(ix, iy, (cw - 6) * cam.k, (ch - 6) * cam.k); g.clip('evenodd');
+          drawCap(g, cam, from, { box: CARD, alpha: 1 - pr }); g.restore();
+        }
+        CHANGES[`${from}>${to}`].forEach((r, i) => {
+          const o = 0.008 * i, po = out3((t - t0 - o) / 0.1), pi = out3((t - t0 - o - 0.07) / 0.18), box = [r[0] - 2, r[1] - 2, r[2] + 4, r[3] + 4];
+          if (pi >= 1) return;
+          fillBox(cam, box, groundOf(to, box));
+          drawCap(g, cam, from, { box, alpha: 1 - po, dy: -2 * po });
+          drawCap(g, cam, to, { box, alpha: pi, dy: 3 * (1 - pi) });
+        });
+        // the logs follow the card: the line count rolls, the old lines (and the panel's old bottom edge) lift out over
+        // the panel's ground, then the new lines land a strip at a time, growing the panel down to its new edge
+        const L = LOG[`${from}>${to}`], lo = t - t0 - 0.1;
+        if (lo >= 0.17 + 0.03 * (L.strips - 1) + 0.18) { drawCap(g, cam, to, { box: LOGS }); continue; }
+        drawCap(g, cam, from, { box: LOGS });
+        if (lo < 0) continue;
+        const ground = groundOf(to, [700, 583, 300, 1]), po = out3(lo / 0.1);
+        for (const box of [L.count, L.out]) {
+          fillBox(cam, box, ground);
+          drawCap(g, cam, from, { box, alpha: 1 - po, dy: -2 * po });
+        }
+        const pc = out3((lo - 0.07) / 0.18);
+        drawCap(g, cam, to, { box: L.count, alpha: pc, dy: 3 * (1 - pc) });
+        for (let i = 0; i < L.strips; i++) {
+          const pi = out3((lo - 0.17 - 0.03 * i) / 0.18), y = L.out[1] + 22 * i;
+          drawCap(g, cam, to, { box: [246, y, 852, Math.min(22, L.end - y)], alpha: pi, dy: 3 * (1 - pi) });
+        }
+      }
+    }
+    // the schedule field: focused on its click, then the phrase types in, a letter a step;
+    // the cron and the next runs arrive with the app's own recognition
+    if (base === 'schedules' && t >= P.field) {
+      const n = clamp(Math.floor(steps(t, P.type)) + 1, 0, typedLen()), now = `sched-${String(t < P.type ? 0 : n).padStart(2, '0')}`;
+      drawCap(g, cam, now);
+      // Lamplit understands the phrase on its 13th letter: what it worked out lands piece by piece (a rise and a
+      // fade, the chip first, then the cron a field at a time, the sentence, the next runs a row at a time, the
+      // note), and on the 18th ("…at 9") the hour rolls over, in the cron and in every time it changed. Never the
+      // whole panel swapped in one frame.
+      const [ox, oy] = cap('sched-13').rect, at = (r, pad) => [ox + r[0] - pad, oy + r[1] - pad, r[2] + 2 * pad, r[3] + 2 * pad];
+      const land = (from, to, t0, pieces, { outD = 0.08, inD = 0.18, rise = 6, pad = 2 } = {}) => {
+        for (const [r, o] of pieces) {
+          const po = out3((t - t0 - o) / outD), pi = out3((t - t0 - o - outD * 0.6) / inD), box = at(r, pad);
+          if (t < t0 + o) { drawCap(g, cam, from, { box }); continue; }
+          if (pi >= 1) continue;
+          fillBox(cam, box, groundOf(to, box));
+          drawCap(g, cam, from, { box, alpha: 1 - po, dy: -0.5 * rise * po });
+          drawCap(g, cam, to, { box, alpha: pi, dy: rise * (1 - pi) });
+        }
+      };
+      const t13 = P.type + 12 * F, t18 = P.type + 17 * F;
+      if (n >= 13 && t < t13 + 0.45) {
+        const rows = [218, 254, 288, 322, 356].map((y, i) => [[696, y - 2, 450, 26], 0.12 + 0.025 * i]);
+        land('sched-12', now, t13, [[[518, 112, 100, 20], 0], ...[0, 1, 2, 3, 4].map((i) => [[664 + i * 52, 64, 50, 50], 0.03 + 0.02 * i]), [[1120, 78, 24, 24], 0.1],
+          [[496, 232, 138, 42], 0.04], [[664, 148, 338, 24], 0.08], ...rows, [[16, 280, 618, 116], 0.14]], { inD: 0.16 });
+      }
+      if (n >= 18 && t < t18 + 0.25) {
+        // only the glyphs that change (measured in the captures), so the digits beside them hold still
+        land('sched-17', now, t18, [[735, 82, 11, 15], [694, 152, 10, 13], [797, 223, 11, 13], [1079, 223, 18, 13], [788.7, 259, 9, 12], [801, 293, 9, 12], [795.7, 327, 9, 12], [802.7, 361, 9, 12], [204.3, 301.7, 11, 13], [282.7, 325.7, 11, 13]]
+          .map((r, i) => [r, 0.012 * i]), { outD: 0.07, inD: 0.14, rise: 4, pad: 0 });
+      }
+    }
+    // The element in play floats alone on the night (the row about to be clicked, the error
+    // line, the button about to be pressed), then the field falls away: on the click, or as the
+    // camera leaves.
+    const floats = [
+      [ST.s1 + 1.7, P.rowClick, rr.row, 0, base],
+      [P.logs + 0.5, ST.s3 - 0.05, err, 4, 'failed'],
+      [ST.s3 + 0.5, P.replay, rf.replay, 8, base],
+    ];
+    for (const [t0, t1, rect, r, shot] of floats) {
+      const a = M.inOut((t - t0) / 0.3) * (1 - M.inOut((t - t1) / 0.3));
+      if (a <= 0) continue;
+      lift(g, cam, rect, r, a * 0.9);
+      g.save(); pageRect(g, cam, rect, r); g.clip(); drawCap(g, cam, shot); g.restore();
+      field(g, cam, NIGHT, a * 0.86, rect, r);
+    }
+    // the cursor: in to the failed row and click; later to Replay and click; then the field
+    const rowP = [row[0] + 140, row[1] + row[3] * 0.62], rp = rf.replay, replayP = [rp[0] + rp[2] * 0.55, rp[1] + rp[3] * 0.65];
+    const sf = rs.scheduleField, fieldP = [sf[0] + 120, sf[1] + sf[3] * 0.7];
+    const sets = [
+      { from: ST.s1 + 1.1, to: P.rowClick + 0.5, keys: [[ST.s1 + 1.1, rowP[0] + 0.45 * W / cam.k, rowP[1] + 0.5 * H / cam.k], [P.rowClick - 0.08, ...rowP], [P.rowClick + 0.5, rowP[0] + 60, rowP[1] + 40]], press: P.rowClick },
+      { from: ST.s3 + 0.75, to: P.replay + 0.55, keys: [[ST.s3 + 0.75, replayP[0] + 0.2 * W / cam.k, replayP[1] + 0.45 * H / cam.k], [P.replay - 0.08, ...replayP], [P.replay + 0.55, replayP[0] + 70, replayP[1] + 60]], press: P.replay },
+      { from: P.sched + 0.6, to: P.type + 0.4, keys: [[P.sched + 0.6, fieldP[0] + 0.3 * W / cam.k, fieldP[1] + 0.4 * H / cam.k], [P.field - 0.08, ...fieldP], [P.type + 0.4, fieldP[0] + 30, fieldP[1] + 46]], press: P.field },
+    ];
+    for (const s of sets) {
+      if (t < s.from || t > s.to) continue;
+      const a = M.inOut((t - s.from) / 0.15) * (1 - M.inOut((t - s.to + 0.2) / 0.2));
+      const [x, y] = cursorOn(s.keys, t), [fx, fy] = toFrame(cam, x, y), [nx] = toFrame(cam, ...cursorOn(s.keys, t + F));
+      drawCursor(g, fx, fy, 11 * U, (nx - fx) / F, t >= s.press && t < s.press + 0.1, a);
+    }
+  }
+
+  // ---- payoff (bars 13–14.5): the product whole, three of its screens side by side ----
+  // a screen as a tile: the capture, and for the schedule its typed field on top
+  const TILES = [['runs', 'Runs'], ['succeeded', 'Replay'], ['schedules', 'Schedules']];
+  function drawTile(name, x, y, w, h) {
+    const c = cap(name);
+    g.drawImage(c.img, x, y, w, h);
+    if (name === 'schedules') { const s = cap('sched-20'), k = w / 1440; g.drawImage(s.img, x + s.rect[0] * k, y + s.rect[1] * k, s.rect[2] * k, s.rect[3] * k); }
+  }
+  function tiles() {
+    const gap = 3 * U, ar = 900 / 1440;
+    if (!wide) { // the runs page large, the other two side by side under it, fitted under the words
+      const top = H * (tall ? 0.34 : 0.36), row = gap + 6 * U, room = H * 0.93 - top - 5 * U; // row: room for the big tile's label
+      const w = Math.min(W * 0.86, (room - row + gap * ar / 2) / (1.5 * ar)), x = (W - w) / 2, h = w * ar, s = (w - gap) / 2;
+      return [{ x, y: top, w, h }, { x, y: top + h + row, w: s, h: s * ar }, { x: x + s + gap, y: top + h + row, w: s, h: s * ar }]
+        .map((r, i) => ({ ...r, shot: TILES[i][0], label: TILES[i][1] }));
+    }
+    const w = (W * 0.9 - gap * 2) / 3, h = w * ar, y = H * 0.36;
+    return TILES.map(([shot, label], i) => ({ shot, label, x: W * 0.05 + i * (w + gap), y, w, h }));
+  }
+  function payoff(t) {
+    g.fillStyle = INK; g.fillRect(0, 0, W, H);
+    payoffWords(t);
+    for (const [i, tile] of tiles().entries()) {
+      const ti = ST.pay + i * 2 * F; if (t < ti) continue;
+      const sp = M.settle(t - ti, 0.6), k = lerp(0.9, 1, sp), oy = lerp(4, 0, sp);
+      g.save(); g.globalAlpha *= M.inOut((t - ti) / 0.2); g.translate(tile.x + tile.w / 2, tile.y + tile.h / 2 + oy * U); g.scale(k, k);
+      g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowBlur = 4 * U; g.shadowOffsetY = 1.6 * U;
+      roundRect(g, -tile.w / 2, -tile.h / 2, tile.w, tile.h, 1.4 * U); g.fillStyle = INK; g.fill(); g.shadowColor = 'transparent';
+      g.clip(); drawTile(tile.shot, -tile.w / 2, -tile.h / 2, tile.w, tile.h);
+      g.restore();
+      g.save(); g.globalAlpha *= M.inOut((t - ti) / 0.2);
+      roundRect(g, tile.x + 0.5, tile.y + 0.5 + oy * U, tile.w - 1, tile.h - 1, 1.4 * U); g.lineWidth = 1.5; g.strokeStyle = 'rgba(236,234,227,0.12)'; g.stroke();
+      g.restore();
+      tileLabel(t, tile, ti, oy);
+    }
+  }
+  // a tile's name under it, arriving in the accent
+  function tileLabel(t, tile, ti, oy = 0) {
+    g.save(); g.globalAlpha *= M.inOut((t - ti) / 0.2);
+    setText(g, MONO(500), 2.3 * U, 0); g.fillStyle = arrive(t, ti, MUTED); g.fillText(tile.label, tile.x, tile.y + tile.h + 4.2 * U + oy * U);
+    g.restore();
+  }
+  // the payoff's line, a phrase a beat
+  function payoffWords(t) {
+    const t0 = ST.pay, words = [V.payoff1, V.payoff2, V.payoff3];
+    let size = 8.2 * U; const space = widthOf(g, SANS(700), size, '  ');
+    const ws = words.map((w) => widthOf(g, SANS(700), size, w)), total = ws.reduce((a, b) => a + b, 0) + space * 2;
+    if (total <= W * 0.9) { // one line across the top
+      let x = W / 2 - total / 2;
+      words.forEach((w, i) => { const ti = t0 + i * BEAT; if (t >= ti) line(g, w, x, H * (wide ? 0.22 : 0.18), SANS(700), size, t, ti); x += ws[i] + space; });
+    } else { // stacked, one phrase a line, above the tiles
+      size = Math.min(9 * U, ...words.map((w) => W * 0.86 / widthOf(g, SANS(700), 100, w) * 100));
+      const x = Math.min(tiles()[0].x, W * 0.07), y1 = tiles()[0].y - 5 * U - size * 1.05 * 2;
+      words.forEach((w, i) => { const ti = t0 + i * BEAT; if (t >= ti) line(g, w, x, y1 + i * size * 1.05, SANS(700), size, t, ti); });
+    }
+  }
+
+  // ---- ask (bars 14.5–17): the screens fold into the mark; the name, the address, the line to type; held 2.5 s to read ----
+  function ask(t) {
+    g.fillStyle = INK; g.fillRect(0, 0, W, H);
+    const t0 = ST.ask, fold = clamp((t - t0) / 0.42), fe = M.snap(fold) ** 1.4;
+    const size = 14 * U, L = lockupGeom(size), cy = H * 0.44, my = cy - capOf(size) / 2;
+    // the payoff's line and the tiles' names leave as the fold starts (lifting and fading over 0.2 s), never in one frame
+    const leave = M.out((t - t0) / 0.2);
+    if (leave < 1) {
+      g.save(); g.globalAlpha *= 1 - leave; g.translate(0, -2 * U * leave); payoffWords(t);
+      for (const tile of tiles()) tileLabel(t, tile, ST.pay);
+      g.restore();
+    }
+    if (fold < 1) {
+      for (const tile of tiles()) {
+        const cx = lerp(tile.x + tile.w / 2, W / 2, fe), cyT = lerp(tile.y + tile.h / 2, my, fe), k = lerp(1, L.ms / tile.w, fe);
+        g.save(); g.globalAlpha *= 1 - clamp((fold - 0.6) / 0.4); g.translate(cx, cyT); g.scale(k, k);
+        roundRect(g, -tile.w / 2, -tile.h / 2, tile.w, tile.h, 1.4 * U); g.clip();
+        drawTile(tile.shot, -tile.w / 2, -tile.h / 2, tile.w, tile.h); g.restore();
+      }
+    }
+    // the mark takes their place as they arrive, and slides to its place in the lockup
+    const t1 = t0 + 0.25, m = M.settle(t - t1 - 0.1, 0.5);
+    const mx = lerp(W / 2, L.x + L.ms / 2, m), mk = lerp(0.7, 1, M.settle(t - t1, 0.4));
+    drawMark(g, mx, my, L.ms * mk, M.inOut((t - t1) / 0.2));
+    slam(g, V.name, L.x + L.ms + L.gap, cy, SANS(600), size, t, t1 + 0.5, arrive(t, t1 + 0.5, TEXT), -0.04);
+    line(g, V.url, W / 2, cy + 12 * U, SANS(600), 5.6 * U, t, ST.ask + 1, { colour: TEXT, align: 'center', tracking: -0.02 });
+    // the line to type, as a terminal shows it: mono on the product's panel ink
+    const it = ST.ask + 1.5;
+    if (t >= it) {
+      const ms = 3 * U, full = `$ ${V.install}`, tw = widthOf(g, MONO(500), ms, full, 0), bw = tw + 6 * U, bh = 7.4 * U, by = cy + 18 * U;
+      const k = lerp(0.92, 1, M.settle(t - it, 0.45));
+      g.save(); g.globalAlpha *= M.inOut((t - it) / 0.2); g.translate(W / 2, by + bh / 2); g.scale(k, k);
+      roundRect(g, -bw / 2, -bh / 2, bw, bh, 1.6 * U); g.fillStyle = INK2; g.fill(); g.lineWidth = 0.15 * U; g.strokeStyle = LINE; g.stroke();
+      setText(g, MONO(500), ms, 0); g.fillStyle = AMBER; g.fillText('$', -tw / 2, capOf(ms) / 2);
+      g.fillStyle = TEXT; g.fillText(V.install, -tw / 2 + widthOf(g, MONO(500), ms, '$ ', 0), capOf(ms) / 2); g.restore();
+    }
+    line(g, V.tagline, W / 2, cy + 33 * U, SANS(500), 3.4 * U, t, ST.ask + 2, { colour: MUTED, align: 'center', tracking: -0.01 });
+  }
+
+  const ACTS = [[0, hook], [at(2), turn], [TU.close + 3 * F, promise], [ST.s1, proof], [ST.pay, payoff], [ST.ask, ask]];
+
+  // ---------- KEEP: drawing, loading; ADAPT: the cues ----------
+  function seek(t, values) {
+    V = { ...DEFAULTS, ...values };
+    [W, H] = SHAPES[V.size] || SHAPES['16:9']; U = Math.min(W, H) / 100; tall = H > W; wide = W > H;
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    g.reset();
+    t = clamp(t, 0, DURATION - 1e-6);
+    let act = ACTS[0][1];
+    for (const [t0, draw] of ACTS) if (t >= t0 - 1e-9) act = draw;
+    act(t);
+    return canvas;
+  }
+  async function prepare() {
+    await Promise.all([
+      loadFont('Instrument Sans', 'assets/fonts/instrument-sans-variable.ttf', { weight: '400 700', stretch: '75% 100%' }),
+      loadFont('JetBrains Mono', 'assets/fonts/jetbrains-mono-variable.ttf', { weight: '100 800' }),
+    ]);
+    if (!A.set) A.set = await (await fetch('assets/screens/screens.json')).json();
+    await Promise.all(Object.values(A.set.captures).map(async (c) => { if (!A.img[c.file]) A.img[c.file] = await loadImage(`assets/screens/${c.file}`); }));
+    if (!A.mark) A.mark = await loadImage('assets/brand/mark.svg');
+    await document.fonts.ready;
+  }
+
+  // Sound: every cue on its visual onset; taps on clicks, soft pops on results, ticks on typing,
+  // quiet swishes only on full-frame moves. No accents, no riser.
+  function cues(values) {
+    V = { ...DEFAULTS, ...values };
+    const out = [], add = (t, type, gain, motion) => out.push({ t, type, gain, ...(motion ? { motion } : {}) });
+    const travel = { kind: 'camera', travel: 0.6 };
+    add(at(0, 0), 'pop', 0.45); add(at(0, 2), 'pop', 0.45); add(at(1), 'pop', 0.45);
+    for (let i = 0; i < 3; i++) add(at(1, 2) + i * F, 'tick', 0.45);
+    add(TU.born, 'pop', 0.4);
+    for (let i = 0; i < Math.ceil(V.prompt.length / 2); i++) add(TU.grow + (3 + i) * F, 'tick', 0.55);
+    add(TU.send, 'click', 0.65); // the lockup arrives on the music alone: a pop under a logo read as a UI blip (the founder, 2026-10-19)
+    add(TU.flood, 'swish', 0.32, { kind: 'container', travel: 1 });
+    add(P.rowClick, 'click', 0.65);
+    add(P.logs + 0.05, 'swish', 0.32, travel); add(P.logs + 0.45, 'pop', 0.38);
+    add(ST.s3 + 0.05, 'swish', 0.3, travel);
+    add(P.replay, 'click', 0.65); add(P.running, 'pop', 0.4); add(P.done, 'pop', 0.45);
+    add(P.field, 'click', 0.6);
+    for (let i = 0; i < 20; i++) add(P.type + i * F, 'tick', 0.55);
+    for (let i = 0; i < 3; i++) add(ST.pay + i * BEAT, 'pop', 0.42);
+    add(ST.ask, 'swish', 0.32, { kind: 'container', travel: 0.8 }); add(ST.ask + 0.25, 'pop', 0.42); add(ST.ask + 0.75, 'pop', 0.38);
+    add(ST.ask + 1, 'pop', 0.4); add(ST.ask + 1.5, 'pop', 0.4);
+    return out.sort((a, b) => a.t - b.t);
+  }
+  const music = {
+    bpm: BPM, duration: DURATION, root: 50, // D3, upward-voiced major chords, 120 BPM
+    chords: [[0, 4, 7], [7, 11, 14], [9, 12, 16], [5, 9, 12]],
+    sections: [
+      { from: 0, to: 2, pad: 0.65, hats: 0.4 },
+      { from: 2, to: 5, kick: 0.75, hats: 0.55, bass: 0.6, pad: 0.55 },
+      { from: 5, to: 13, kick: 0.8, hats: 0.6, clap: 0.4, bass: 0.65, pad: 0.55 },
+      { from: 13, to: 14.5, kick: 0.8, hats: 0.6, clap: 0.45, bass: 0.65, pad: 0.6 },
+      { from: 14.5, to: 17, pad: 0.75, hats: 0.3 },
+    ],
+    breaks: [[at(1, 3), at(2)], [P.rowClick - 0.5, P.rowClick], [ST.ask - 1, ST.ask]],
+  };
+  const STATES = [[0, 'Hook'], [at(2), 'Turn'], [TU.close, 'Promise'], [ST.s1, 'Runs'], [P.logs, 'Logs'], [ST.s3, 'Replay'], [P.sched, 'Schedule'], [ST.pay, 'Payoff'], [ST.ask, 'Ask']];
+  window.template = {
+    fps: FPS, duration: DURATION, sizes: SHAPES, width: W, height: H, defaults: () => ({ size: '16:9', ...DEFAULTS }), fields: FIELDS, states: STATES,
+    prepare, seek: (t, values) => seek(t, values), cues, music,
+    keyTimes: [1.4, 3.5, 4.6, 6.1, 6.8, 8.5, 10.6, 11.8, 12.4, 13.2, 14.8, 16.3, 17.2, 17.9, 18.9, 20.1, 21.1, 21.9, 23.0, 25.3, 27.6, 30.8, 33.9],
+  };
+  const q = new URLSearchParams(location.search);
+  if (window.parent === window && !q.has('render')) prepare().then(() => { const t0 = performance.now(); const loop = () => { seek(((performance.now() - t0) / 1000) % DURATION, { size: q.get('size') || '16:9' }); requestAnimationFrame(loop); }; loop(); });
+})();
+</script>
