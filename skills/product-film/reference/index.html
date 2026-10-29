@@ -77,7 +77,7 @@
   let V = DEFAULTS; // set from seek's arguments on every frame
 
   // ---------- KEEP: assets, the real screens ----------
-  const A = { set: null, img: {}, mark: null };
+  const A = { set: null, img: {}, mark: null, tileMips: {} };
   const cap = (name) => { const c = A.set.captures[name]; return { img: A.img[c.file], rect: c.rect, scale: c.scale }; };
   const R = (state) => A.set.rects[state];
 
@@ -517,10 +517,20 @@
   // ---- payoff (bars 13–14.5): the product whole, three of its screens side by side ----
   // a screen as a tile: the capture, and for the schedule its typed field on top
   const TILES = [['runs', 'Runs'], ['succeeded', 'Replay'], ['schedules', 'Schedules']];
+  // Fixed CPU mip rasters avoid the browser choosing a resize path from earlier seeks.
+  function drawTileImage(name, x, y, w, h) {
+    const m = g.getTransform(), img = cap(name).img;
+    const tw = Math.max(1, Math.round(Math.hypot(m.a, m.b) * Math.abs(w))), th = Math.max(1, Math.round(Math.hypot(m.c, m.d) * Math.abs(h)));
+    const mips = A.tileMips[name]; let level = 0;
+    while (mips[level + 1] && mips[level + 1].width >= tw && mips[level + 1].height >= th) level++;
+    // Match the canvas sampler's float32 scale adjustment, including its rounded-up mip height.
+    const mip = mips[level], sw = Math.fround(img.width * Math.fround(mip.width / img.width)), sh = Math.fround(img.height * Math.fround(mip.height / img.height));
+    g.drawImage(mip, 0, 0, sw, sh, x, y, w, h);
+  }
   function drawTile(name, x, y, w, h) {
     const c = cap(name);
-    g.drawImage(c.img, x, y, w, h);
-    if (name === 'schedules') { const s = cap('sched-20'), k = w / 1440; g.drawImage(s.img, x + s.rect[0] * k, y + s.rect[1] * k, s.rect[2] * k, s.rect[3] * k); }
+    drawTileImage(name, x, y, w, h);
+    if (name === 'schedules') { const s = cap('sched-20'), k = w / 1440; drawTileImage('sched-20', x + s.rect[0] * k, y + s.rect[1] * k, s.rect[2] * k, s.rect[3] * k); }
   }
   function tiles() {
     const gap = 3 * U, ar = 900 / 1440;
@@ -632,6 +642,22 @@
     if (!A.set) A.set = await (await fetch('assets/screens/screens.json')).json();
     await Promise.all(Object.values(A.set.captures).map(async (c) => { if (!A.img[c.file]) A.img[c.file] = await loadImage(`assets/screens/${c.file}`); }));
     if (!A.mark) A.mark = await loadImage('assets/brand/mark.svg');
+    // Preserve each capture's approved first-use resize order; then freeze the resulting pixels.
+    const orders = { runs: [0, 2, 4, 3, 1], succeeded: [2, 3, 4, 1, 0], schedules: [0, 1, 3, 2, 4], 'sched-20': [1, 3, 2, 4, 0] };
+    for (const [name, order] of Object.entries(orders)) if (!A.tileMips[name]) {
+      const img = cap(name).img, host = document.createElement('canvas'); host.width = img.width; host.height = img.height;
+      const ctx = host.getContext('2d', { willReadFrequently: true }), mips = {};
+      const maxLevel = Math.ceil(Math.log2(Math.max(img.width, img.height)));
+      for (const level of [...order, ...Array.from({ length: maxLevel - 4 }, (_, i) => i + 5)]) {
+        const w = Math.ceil(img.width / 2 ** level), h = Math.ceil(img.height / 2 ** level);
+        ctx.reset(); ctx.drawImage(img, 0, 0, w, h);
+        const pixels = ctx.getImageData(0, 0, w, h);
+        if (!level) { mips[0] = img; continue; }
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d', { willReadFrequently: true }).putImageData(pixels, 0, 0); mips[level] = c;
+      }
+      A.tileMips[name] = mips;
+    }
     await document.fonts.ready;
   }
 
