@@ -5,6 +5,8 @@ description: Make a 34-second launch video for a product from its real screens, 
 
 # Product film
 
+For Japanese, Korean or Chinese product pages, keep the copy in that language and set the film’s `lang` to the page’s `<html lang>`; bundled Noto faces and phrase breaks handle the text.
+
 Make a launch film that sells one product: the problem in huge type, one
 line of promise, four proof steps on the product's real screens, the result,
 and an ask held to the last frame. Start from the finished film in `reference/`
