@@ -13,14 +13,16 @@ that signals the story's meaning.
 
 ## Format
 
-- 34 s in the reference (20–35), on a 120 BPM grid: a beat is 0.5 s, a bar 2 s.
+- 34 s in the reference (20–40), on a 120 BPM grid: a beat is 0.5 s, a bar 2 s.
   Acts start on bar lines (the ask on a half bar); clicks and landings fall on beats.
+  When the steps need more room, the film grows a bar at a time; the song fits itself.
 - 60 fps, rendered with motion blur (`--blur 4`). Choreography is timed in
   steps of 1/12 s (`F` in the film): words land a step apart, a press lasts
   two steps.
 - Three shapes, each laid out for its frame: 16:9 (1920 × 1080), 1:1
   (1440 × 1440), 9:16 (1080 × 1920).
-- Captions, no voice-over. Every message reads with the sound off.
+- Captions carry every message, read with the sound off. An optional narrated
+  version adds a voice, one sentence a line, never in place of the captions.
 
 ## The five acts
 
@@ -56,6 +58,14 @@ camera's own drift; never a slow push that stops and starts. The reference went 
 Steps 1 and 2 keep their pace: the caption reads before the camera moves, and the element floats alone for
 the eye before the click.
 
+Room on every transition (the founder, 2026-11-06, on the Veyset proof: "needs some breathing room on most
+transitions"): once a step's result has settled (the new page whole after its cut, the last state changed, the
+camera landed on what the typing made), it reads for about a second before the next camera or cursor move, and
+each caption reads before its step's first action. Keep it lively: no dead hold over about 1.8 s, and when the
+room doesn't fit, the film grows a bar at a time rather than squeezing a step. Lamplit's approved cut is a
+little tight in two places (0.85 s after the run page opens before the whip to the logs; 1.5 s for step 4's
+five-word caption before the field click); a new film doesn't copy that.
+
 ## The story of the proof
 
 Steps, not features. From the site, find who the product is for and the one
@@ -86,8 +96,9 @@ Four steps, 2–4.5 s each, one place in the product each. Each one:
 3. The element floats alone on a dark field with a soft lift shadow (the row
    about to be clicked, the line that explains, the button about to be pressed),
    long enough to see before anything happens to it.
-4. The big cursor arrives (fast first, landing soft) and acts on a beat: the
-   app's own pressed state shows for a few frames.
+4. The big cursor arrives (fast first, landing soft), rests still on the
+   target, and presses on a beat, at the same moment as the app's own
+   pressed state, which shows for a few frames.
 5. The real response: a page the app opens arrives on a cut; a state that
    changes in place changes only in its own regions. The field falls away
    (0.3 s) with the click.
@@ -109,6 +120,13 @@ short side in close-ups, 9.5% in wider views. It tilts toward where it is
 going (rest −8°, up to ±16°), shrinks to 0.84 while pressed (two steps), and
 moves fast first with a soft landing. It stops just below and right of its
 target, so the target stays visible.
+
+Every click is one gesture, in sync (the founder, 2026-11-06: "click not synced with the pointer action"): glide
+in, arrive and rest still on the target for 0.3–0.5 s, press exactly when the app's pressed state shows, hold
+still through the press (about 0.2 s), then leave. The cursor never glides through a click: a key that arrives
+just before the press and the next key already the exit puts it off the button as it presses. A field is
+clicked the same way; its words type once the press is over, the cursor stepped aside and still. `clickKeys`
+in the film writes this, and the film's checks fail a press where the cursor isn't resting on its target.
 
 ## The camera
 

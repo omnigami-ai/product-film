@@ -2,7 +2,7 @@
 
 A 34-second launch film of your real product, in every shape.
 
-Give it your URL. It reads your site, writes one short story in your own words, captures your real screens, and shows your product doing its job, with a cursor and a camera that follows it. You get MP4s in wide, square and tall, and a film you can still edit.
+Give it your URL. It reads your site, writes one short story in your own words, captures your real screens, and shows your product doing its job, with a cursor and a camera that follows it. You get MP4s in wide, square and tall, and a film you can still edit. A narrated version is optional.
 
 Watch it play live, and change its words, at [omnigami.ai/skills/product-film](https://omnigami.ai/skills/product-film).
 
@@ -29,7 +29,7 @@ Make a launch video for https://your-product.com
 
 ## What it runs
 
-The skill works on your computer. It runs the Node scripts in `skills/product-film/scripts/`: they open your product's pages in a local headless browser to capture its real screens, then render the film with that browser and ffmpeg, writing MP4s and an editable HTML film to your project. It sends nothing to omnigami or anyone else, and uses no network beyond loading your own product's pages and the fonts and assets in this folder.
+The skill works on your computer. It runs the Node scripts in `skills/product-film/scripts/`: they open your product's pages in a local headless browser to capture its real screens, then render the film with that browser and ffmpeg, writing MP4s and an editable HTML film to your project. It sends nothing to omnigami. Optional narration sends the script and voice settings to your chosen Google or ElevenLabs TTS service using your own key, or uses your own recordings locally.
 
 ## You need
 
@@ -38,7 +38,7 @@ The skill works on your computer. It runs the Node scripts in `skills/product-fi
 - ffmpeg
 - Chrome, Chromium, Edge or Brave
 
-None beyond your Claude plan’s usage. Node, ffmpeg and the browser are free.
+Your Claude plan’s usage, plus optional TTS usage on your own Google or ElevenLabs account. Your own recording is free; commercial ElevenLabs audio needs a paid plan.
 
 ## Licence
 

@@ -2,7 +2,8 @@
 name: product-film
 description: >-
   Launch video from your product's real screens: 34 seconds in five acts (problem, promise, the product at work,
-  result, ask) with a big cursor, a moving camera, captions and sound, in wide, square and tall. Use when the user
+  result, ask) with a big cursor, a moving camera, captions and sound, in wide, square and tall, with an optional
+  narrated version. Use when the user
   asks for a launch video, product video, promo, demo video, teaser or motion graphics for their product, app or
   website.
 ---
@@ -40,7 +41,7 @@ Set up a first film:
 ```bash
 mkdir product-film && cd product-film
 cp -R "$SKILL_DIR/reference" reference && cp -R "$SKILL_DIR/reference" film && cp -R "$SKILL_DIR/scripts" scripts && cp -R "$SKILL_DIR/music" music
-rm -rf film/assets/screens film/assets/brand film/plans
+rm -rf film/assets/screens film/assets/brand film/plans film/narration
 npm init -y >/dev/null && npm i -D puppeteer-core
 ```
 
@@ -110,18 +111,37 @@ Edit `film/index.html`. Its sections are labelled KEEP, ADAPT and REPLACE.
   (which capture is on screen), the framings in `proofScene` (page rects the
   camera shows whole, with a narrower set for tall), `floats` (the element in
   play, alone on a dark field), `PATCH` (the only regions that change when a
-  state advances in place: measure them by diffing the captures), and the
-  cursor `sets`. A page the app opens arrives on a cut; a state that changes
+  state advances in place: measure them by diffing the captures), `SETTLED`
+  (when each step's result has settled on screen), and the cursor's
+  `cursorSets`. A page the app opens arrives on a cut; a state that changes
   in place changes only inside `PATCH`.
+- **Every click in sync with the cursor:** write each cursor set with
+  `clickKeys` (its comment shows Lamplit's three that way). The cursor glides
+  in, arrives and rests still on the target for 0.3–0.5 s, presses exactly
+  when the app's own pressed state shows (the same `P` time drives both), holds
+  still through the press, then leaves. A field is clicked the same way; the
+  words start typing once the press is over, and the cursor steps aside and
+  holds still while they type. Never key the cursor's arrival and its exit
+  either side of the click: it would be gliding off the button as it presses.
+  Delete `APPROVED_CURSOR` and Lamplit's own sets (its approved cut predates
+  this rule). The film's checks fail any press where the cursor isn't resting
+  on its target rect, or has moved in the 0.25 s before it.
 - **ADAPT the payoff and the ask:** `TILES` (three of your real screens) and
   your name, address, line to type and tagline.
   Keep the act times on bar lines, and keep the cues in step with the acts.
-- **KEEP** the toolkit, the camera, the fields, the drawing, and the 34 s on
-  the 120 BPM grid (unless the user asks otherwise), with its pauses where the
-  viewer needs them (style.md, "Pauses"): your words read before they leave,
-  and after a page change or long glide the screen holds before the click.
-  When your words are longer or shorter, move the holds (`TU`, `ST`, `P`), not
-  the product's own working.
+- **KEEP** the toolkit, the camera, the fields, the drawing, and the 120 BPM
+  grid, with room where the viewer needs it (style.md, "Pauses"): each step's
+  caption reads before its first action; after each result settles, about a
+  second to read it before the next camera or cursor move; after a page change
+  or long glide, the screen holds before the click. Keep it lively: nothing in
+  the proof sits dead for more than about 1.8 s. When your words are longer or
+  shorter, move the holds (`TU`, `ST`, `P`), not the product's own working.
+  When the steps need more room than 34 s gives, lengthen the film a bar
+  (2 s) at a time, up to about 40 s: move `ST` and `DURATION` together, keep
+  the acts' shares (style.md, "The five acts"), and update `STORY.md`'s times.
+  The song fits itself to the new length (it lands on the last bar line at
+  least 3.5 s before the end); with `--music`, stretch the last of
+  `music.sections` to the new bar count.
 
 Write `PRODUCT.md` at the project root: the URL, what the product does, the
 brand colour and mark (with licences), the chosen words, the date.
@@ -141,7 +161,12 @@ brand colour and mark (with licences), the chosen words, the date.
    else, and fix what it finds. Otherwise reread `critique.md` and score from
    the images alone. Nothing ships below 8. After three rounds, report what
    remains.
-3. Check repeatability: `node scripts/render.mjs film --all --check`.
+3. Check repeatability and the film's own checks:
+   `node scripts/render.mjs film --all --check`. They fail a press where the
+   cursor isn't resting on its target, a field typing with the cursor moving, a
+   result with under 0.9 s before the next move, a caption without time to read
+   before its click, a dead hold over 1.8 s in the proof, and a length off the
+   bar grid. Fix the timing, not the checks.
 4. Render:
    ```bash
    node scripts/render.mjs film --all --video --blur 4 --audio music/song.mp3 --sound --poster <time>
@@ -164,6 +189,118 @@ brand colour and mark (with licences), the chosen words, the date.
    own words, with its URL). Hand over the MP4 links, the posters, the
    caption, a short check summary, and the one change that would most improve
    the film. Put the detailed scores in `out/REVIEW.md`.
+7. If the user asked for a narrated version, make it now ("Narrated version",
+   below) and hand it over beside the music-only films.
+
+## Narrated version (optional)
+
+A second cut of the same film with a voice reading one short line per act
+over the song. The music-only films stay the main delivery; the narrated MP4s
+reuse their picture exactly. Make it when the user asks for a voice-over,
+narration or a spoken version. When you show the story for review, you may
+offer it once in a line ("I can also make a narrated version: it needs a
+Gemini or ElevenLabs API key, or your own recording of the lines"). Don't
+make it unasked, and never in place of the music-only films.
+
+**Voice, one of three:**
+
+- **Google (the default):** Gemini 3.8 Flash TTS through the Gemini API, with
+  the user's own key: make one at aistudio.google.com/apikey and
+  `export GEMINI_API_KEY=…`. The voice is designed from a written description
+  (omnigami's "Iris", or the user's own) and kept in the key's Google project;
+  its ID is saved in `film/narration/voices.json`, so later films keep the
+  voice. A film costs about eight requests (one for the voice, one a line), a
+  few hundred characters: pennies. A key's tier sets a daily request limit
+  (100 a day on Tier 1). The script waits out a per-minute limit and stops at
+  the daily one with the takes so far saved; run it again after the reset.
+  Never switch it to another model (a "lite" one) to get past a limit: its
+  voice is thinner. Wait for the reset, or use ElevenLabs or the user's own
+  recording, and say which in the handover.
+- **ElevenLabs:** the user's own key, from their ElevenLabs settings, with
+  text to speech, voices read and voices write allowed;
+  `export ELEVENLABS_API_KEY=…`. The voice is omnigami's pick from the public
+  voice library, "Lara", a studio-trained voice that sounds the same for
+  every user; narrate.mjs adds her to their voice list the first time. A
+  studio-trained (professional) voice is spoken on a model it was trained on
+  (eleven_v4, or the next one their plan allows), never on eleven_v3, where
+  it only approximates the voice and comes out thin; narrate.mjs reads this
+  from ElevenLabs and picks the model. Don't change it. 24 kHz PCM. A film
+  uses a few hundred credits. Using
+  ElevenLabs audio commercially (a launch film is commercial) needs a paid
+  plan; tell the user before they rely on a free account.
+- **Their own voice, free:** one recording a line, named by the line's id, in
+  `film/narration/recorded/` (`problem.wav`, `promise.wav`, …; any common
+  audio format). A quiet room and a phone held close are enough. Each take is
+  trimmed and levelled like the generated ones.
+
+A stock voice (Google) or a library voice (ElevenLabs) is fine if the user
+asks for one: give its id in the script's `voice`. To change the voice,
+write a description in `voice` (who is speaking, their age, accent and
+manner, "never an announcer").
+
+**Write the script:** `film/narration/script.json`, in the shape of
+`reference/narration/script.json` (its format is at the top of
+`scripts/narrate.mjs`):
+
+- one short line per act (the problem, the promise, each step, the result),
+  written from `STORY.md` in the product's own words. Say what each moment
+  does for the viewer, like the captions, but don't read the captions out;
+- one sentence a line at most. A second sentence gets its own line, with its
+  own `start` at the moment it describes and its own `window` from there to
+  the act's end, never tacked onto the first. narrate.mjs refuses a line with
+  two sentences;
+- let the lines run into each other, not a list of statements. After the
+  opening problem and promise, a sentence can carry across the steps: "Make
+  the call, note the reason," / "and two of them get moving." / "So by
+  Friday, your update's already started;" / "just give it a read, and share
+  it." Give the lines of one sentence the same `"run": "a"` (the next one
+  `"b"`): they are voiced as one take, so the voice carries on instead of
+  closing each line, and cut at its pauses. Start the first piece late
+  enough that the gap to the next is about half a second;
+- plain, concrete words for what happens on screen ("two of them get
+  moving", "give it a read, and share it"). No tagline phrasing after the
+  opening ("one clear week" once is enough), no people's names from the
+  sample data, and short lines in the steps (four to eight words);
+- each line's `window` is its act's times from `STORY.md`. Size the line to
+  the act at about 2.5 words a second, so it ends well before the next act.
+  Speech is never sped up: when a take is too long, cut words;
+- no spoken ask. The narration ends on the result line, and the ask stays
+  music and picture ("Try it" sounds insincere in every voice);
+- the name said right: find how the company says it (its site, videos,
+  docs) and ask the user if it's ambiguous. In an unattended run, take the
+  plainest reading and say so in the handover. Add a `pronounce` entry: a
+  `note` for Google, a `respell` for ElevenLabs;
+- on ElevenLabs with a designed voice (eleven_v3), an audio tag such as
+  `[warmly]` (in the line's `say`) softens a line that comes out harsh. Lara's
+  model has no tags (narrate.mjs takes them out); `--redo` the line instead.
+
+**Make it:**
+
+```bash
+node scripts/narrate.mjs film --plan                 # the words against each act's time
+node scripts/narrate.mjs film --all                  # Google; or --provider elevenlabs | files
+```
+
+It makes a take a line, places each at its act's start (a long one starts
+earlier in its act and ends 0.12 s before the next line, the last by the end
+of its act; if the song lands earlier than that, set `land` to the time
+render.mjs printed), dips the song 8 dB under the voice, masters to −14 LUFS and
+writes `out/<shape>-narrated.mp4` with `-narrated.srt` (the lines, timed) and
+`-narration.json` (the timing and loudness). Takes are saved in
+`film/narration/takes/` and reused, so a re-render makes no requests and
+sounds the same. When you change a line, only that line is made again.
+`--redo step-2` makes a new take of one line (the old one is kept in
+`superseded/`).
+
+**Check:** the timing report shows every line inside its act (the script
+won't mix one that overruns: shorten that line). Listen to every take, or
+have the user listen if you can't: the name said right, no harsh or flat
+line, nothing garbled. The report confirms the picture is identical to the
+music-only MP4 and the loudness is −14 LUFS.
+
+**No key and no recording:** deliver the music-only films as usual, and tell
+the user that a narrated version needs only a Gemini or ElevenLabs key (or
+their own recording of the lines in `script.json`), then the command above.
 
 ## Revisions
 
@@ -177,9 +314,12 @@ again, and update `STORY.md` and `PRODUCT.md`.
 - Real screens only, captured; sample data only; only the user's brand.
 - Every claim on screen has a source in `STORY.md`.
 - Breathing room: every step's caption is read before anything moves, the
-  element is seen before it is acted on, and every result holds at least a
-  second. When the story doesn't fit, lengthen the film (up to 30 s) or drop
-  a step; never compress the holds.
+  element is seen before it is acted on, and every result reads for about a
+  second before the next camera or cursor move. No dead hold over about 1.8 s.
+  When the story doesn't fit, lengthen the film a bar at a time (up to about
+  40 s) or drop a step; never compress the holds.
+- The cursor is still on its target when it presses, in time with the app's
+  own pressed state (`clickKeys`).
 - `seek(t, values)` paints from its arguments only: no clocks, unseeded
   randomness, timers or network. CPU-backed canvases, reset every frame.
 - Every file the film loads lives inside `film/`.
@@ -187,14 +327,15 @@ again, and update `STORY.md` and `PRODUCT.md`.
 ## Files
 
 - `reference/`: Lamplit's launch film, `STORY.md`, the capture plan
-  (`plans/lamplit.json`), the captured screens, the mark, and the fonts with
+  (`plans/lamplit.json`), its narration script (`narration/script.json`), the captured screens, the mark, and the fonts with
   their OFL licences (Instrument Sans, JetBrains Mono). Lamplit is a
   fictional company made for omnigami's examples.
 - `style.md`: the grammar, with numbers. `critique.md`: the review.
 - `music/`: the skill's song and its stems.
 - `scripts/`: `screens.mjs` (real screens in states), `capture.mjs` (brand
   from a URL), `render.mjs` (stills, strips, checks, MP4s), `preview.mjs`,
-  `music.mjs`, `song.mjs` (fits a supplied song), `sfx.mjs` with the sound kit, and `chrome.mjs`.
+  `music.mjs`, `song.mjs` (fits a supplied song), `sfx.mjs` with the sound kit, `narrate.mjs` (the narrated
+  version), and `chrome.mjs`.
 
 This skill is omnigami's (https://omnigami.ai), © 2026 Auberon LLC. Use what it makes for anything,
 commercial work included, and change the skill for your own use; don't redistribute or

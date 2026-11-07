@@ -144,6 +144,35 @@
     }
     const e = keys[keys.length - 1]; return [e[1], e[2]];
   }
+  // A cursor set whose every click is in sync with the press (the founder, 2026-11-06: "all pointer actions seem a bit
+  // off"): from `start` (page px) at `from`, for each click { t, rect, point?, rest?, hold?, glide?, typing? } it glides
+  // in (`glide` s, default 0.7), arrives and rests still on `point` (default 55% across, 65% down the rect) for `rest`
+  // (0.4 s) before t, presses at t, which is when the app's own pressed state shows, and holds through the press
+  // (`hold`, 0.2 s). A field's `typing: [t0, t1]` steps the cursor aside after the press and holds it there, still,
+  // until t1. Then on to the next click, and after the last it leaves by `leave` (page px) over 0.45 s.
+  // Returns { from, to, keys, press, presses } for the cursor loop and the film's checks.
+  function clickKeys(from, start, clicks, leave = [60, 44]) {
+    const keys = [[from, ...start]], presses = [];
+    let last = from;
+    for (const c of clicks) {
+      const rest = c.rest ?? 0.4, hold = c.hold ?? 0.2, glide = c.glide ?? 0.7;
+      const p = c.point || [c.rect[0] + c.rect[2] * 0.55, c.rect[1] + c.rect[3] * 0.65];
+      const arrive = c.t - rest, depart = Math.max(last, arrive - glide);
+      const [, px, py] = keys[keys.length - 1];
+      if (depart > last) keys.push([depart, px, py]); // still until it sets off
+      keys.push([arrive, ...p], [c.t + hold, ...p]);
+      last = c.t + hold;
+      if (c.typing) { // aside, off the words, and still while they type
+        const aside = [p[0] + 30, p[1] + 46];
+        keys.push([last + 0.3, ...aside, 'aside'], [Math.max(last + 0.3, c.typing[1]), ...aside]);
+        last = Math.max(last + 0.3, c.typing[1]);
+      }
+      presses.push({ t: c.t, rect: c.rect, hold, ...(c.typing ? { typing: c.typing } : {}) });
+    }
+    const [, ex, ey] = keys[keys.length - 1];
+    keys.push([last + 0.45, ex + leave[0], ey + leave[1], 'leave']);
+    return { from, to: last + 0.45, keys, press: presses.map((p) => p.t), presses };
+  }
 
   // ---------- KEEP: the page camera, captures through it, and colour fields ----------
   // keys: [t, x, y, k, ease]: the page point (CSS px) at the frame's centre and the scale (frame
@@ -346,6 +375,10 @@
     field: ST.s4 + 1.5, // the field is clicked: a page change, so the caption reads and the eye finds the field first
     type: ST.s4 + 1.75, // the phrase types in, a letter a step
   };
+  // ADAPT: when each step's result has settled on screen (the page whole after its cut, the last state changed, the
+  // camera landed on what the typing made). Each one reads for about a second before the next camera or cursor move
+  // (the film's checks hold you to 0.9 s), and nothing in the proof sits dead for more than 1.8 s.
+  const SETTLED = [P.rowClick + 0.1, P.logs + 0.6, P.done + 0.3, P.type + 2.6];
   // the regions of the replay page that change between queued, running and succeeded (page px,
   // measured in the captures): the status pill, the meta line (to its version, which a longer duration pushes right), the tabs, the run card
   const PATCH = [[486, 104, 410, 32], [266, 149, 934, 19], [256, 193, 421, 20], [434, 220, 23, 6], [246, 234, 852, 282]];
@@ -380,9 +413,8 @@
     inPart(wide ? [vx + vw * (1 - e), vy, vw, vh] : [vx, vy + vh * (1 - e), vw, vh], () => proofScene(t));
     drawCaption(t, L.cap);
   }
-  function proofScene(t) {
-    g.fillStyle = INK; g.fillRect(0, 0, W, H);
-    g.imageSmoothingQuality = 'high';
+  // the proof's rects and camera keys, apart from drawing, so the film's checks can read every move
+  function proofShots() {
     const rr = R('runs'), rf = R('failed'), rs = R('schedule'), row = rr.row, err = rf.errors[0];
     // framings (page px): close enough to read, wide enough to keep the action whole. Tall
     // frames a narrower part of each screen, so the UI keeps its size and fills the frame.
@@ -392,7 +424,7 @@
     const replayView = pick([690, 64, 726, 150], [1000, 64, 416, 150]), cardView = pick([248, 60, 848, 460], [248, 60, 580, 460]);
     const fieldView = pick([262, 175, 560, 130], [262, 175, 520, 130]), schedView = pick([262, 150, 1140, 380], [560, 180, 856, 360]);
     const k = (r, mx, my) => fitK(r, mx, my);
-    const cam = camOn([
+    const camKeys = [
       [ST.s1, ...centre(laneView), k(laneView) * 1.05, 'cut'],
       [ST.s1 + 1.0, ...centre(laneView), k(laneView), 'drift'],
       [ST.s1 + 1.9, ...centre(rowView), k(rowView), 'glide'],
@@ -410,7 +442,13 @@
       [P.type + 1.75, ...centre(fieldView), k(fieldView), 'drift'],
       [P.type + 2.6, ...centre(schedView), k(schedView, 0.04, 0.06), 'glide'],
       [ST.pay, ...centre(schedView), k(schedView, 0.04, 0.06) * 1.02, 'drift'],
-    ], t);
+    ];
+    return { rr, rf, rs, row, err, camKeys };
+  }
+  function proofScene(t) {
+    g.fillStyle = INK; g.fillRect(0, 0, W, H);
+    g.imageSmoothingQuality = 'high';
+    const { rr, rf, rs, row, err, camKeys } = proofShots(), cam = camOn(camKeys, t);
     const base = screenAt(t);
     drawCap(g, cam, base);
     // the replay advances in place: only the changed regions take the next state
@@ -500,20 +538,31 @@
       g.save(); pageRect(g, cam, rect, r); g.clip(); drawCap(g, cam, shot); g.restore();
       field(g, cam, NIGHT, a * 0.86, rect, r);
     }
-    // the cursor: in to the failed row and click; later to Replay and click; then the field
-    const rowP = [row[0] + 140, row[1] + row[3] * 0.62], rp = rf.replay, replayP = [rp[0] + rp[2] * 0.55, rp[1] + rp[3] * 0.65];
-    const sf = rs.scheduleField, fieldP = [sf[0] + 120, sf[1] + sf[3] * 0.7];
-    const sets = [
-      { from: ST.s1 + 1.1, to: P.rowClick + 0.5, keys: [[ST.s1 + 1.1, rowP[0] + 0.45 * W / cam.k, rowP[1] + 0.5 * H / cam.k], [P.rowClick - 0.08, ...rowP], [P.rowClick + 0.5, rowP[0] + 60, rowP[1] + 40]], press: P.rowClick },
-      { from: ST.s3 + 0.75, to: P.replay + 0.55, keys: [[ST.s3 + 0.75, replayP[0] + 0.2 * W / cam.k, replayP[1] + 0.45 * H / cam.k], [P.replay - 0.08, ...replayP], [P.replay + 0.55, replayP[0] + 70, replayP[1] + 60]], press: P.replay },
-      { from: P.sched + 0.6, to: P.type + 0.4, keys: [[P.sched + 0.6, fieldP[0] + 0.3 * W / cam.k, fieldP[1] + 0.4 * H / cam.k], [P.field - 0.08, ...fieldP], [P.type + 0.4, fieldP[0] + 30, fieldP[1] + 46]], press: P.field },
-    ];
-    for (const s of sets) {
+    for (const s of cursorSets(proofShots(), cam)) {
       if (t < s.from || t > s.to) continue;
       const a = M.inOut((t - s.from) / 0.15) * (1 - M.inOut((t - s.to + 0.2) / 0.2));
       const [x, y] = cursorOn(s.keys, t), [fx, fy] = toFrame(cam, x, y), [nx] = toFrame(cam, ...cursorOn(s.keys, t + F));
-      drawCursor(g, fx, fy, 11 * U, (nx - fx) / F, t >= s.press && t < s.press + 0.1, a);
+      drawCursor(g, fx, fy, 11 * U, (nx - fx) / F, [].concat(s.press).some((p) => t >= p && t < p + 0.1), a);
     }
+  }
+  // ADAPT: the cursor. Write every set with clickKeys (above): it glides in, rests still on the target, presses on the
+  // click (when the app's own pressed state shows) and holds through the press, then leaves. A field is clicked the
+  // same way, then the cursor steps aside and holds still while the words type (`typing`). The film's checks fail a
+  // press where the cursor isn't resting on its target. For example, Lamplit's three would read:
+  //   clickKeys(ST.s1 + 1.1, [rowP[0] + 0.45 * W / cam.k, rowP[1] + 0.5 * H / cam.k], [{ t: P.rowClick, rect: row, point: rowP }]),
+  //   clickKeys(ST.s3 + 0.75, [...], [{ t: P.replay, rect: rf.replay }]),
+  //   clickKeys(P.sched + 0.6, [...], [{ t: P.field, rect: rs.scheduleField, point: fieldP, typing: [P.type, P.type + 20 * F] }]),
+  // Lamplit's own sets below are its approved cut (2026-10-22), from before that rule: they arrive a frame or two
+  // before the click and leave at once. Delete APPROVED_CURSOR and these sets in your film.
+  const APPROVED_CURSOR = true;
+  function cursorSets({ row, rf, rs }, cam) {
+    const rowP = [row[0] + 140, row[1] + row[3] * 0.62], rp = rf.replay, replayP = [rp[0] + rp[2] * 0.55, rp[1] + rp[3] * 0.65];
+    const sf = rs.scheduleField, fieldP = [sf[0] + 120, sf[1] + sf[3] * 0.7];
+    return [
+      { from: ST.s1 + 1.1, to: P.rowClick + 0.5, keys: [[ST.s1 + 1.1, rowP[0] + 0.45 * W / cam.k, rowP[1] + 0.5 * H / cam.k], [P.rowClick - 0.08, ...rowP], [P.rowClick + 0.5, rowP[0] + 60, rowP[1] + 40]], press: P.rowClick, presses: [{ t: P.rowClick, rect: row }] },
+      { from: ST.s3 + 0.75, to: P.replay + 0.55, keys: [[ST.s3 + 0.75, replayP[0] + 0.2 * W / cam.k, replayP[1] + 0.45 * H / cam.k], [P.replay - 0.08, ...replayP], [P.replay + 0.55, replayP[0] + 70, replayP[1] + 60]], press: P.replay, presses: [{ t: P.replay, rect: rp }] },
+      { from: P.sched + 0.6, to: P.type + 0.4, keys: [[P.sched + 0.6, fieldP[0] + 0.3 * W / cam.k, fieldP[1] + 0.4 * H / cam.k], [P.field - 0.08, ...fieldP], [P.type + 0.4, fieldP[0] + 30, fieldP[1] + 46]], press: P.field, presses: [{ t: P.field, rect: sf, typing: [P.type, P.type + typedLen() * F] }] },
+    ];
   }
 
   // ---- payoff (bars 13–14.5): the product whole, three of its screens side by side ----
@@ -698,10 +747,67 @@
     ],
     breaks: [[at(1, 3), at(2)], [P.rowClick - 0.5, P.rowClick], [ST.ask - 1, ST.ask]],
   };
+  // ---------- KEEP: the film's checks (render.mjs --check runs them) ----------
+  // The cursor in sync with every press, a field typing with the cursor still, room after each result, captions read
+  // before their action, no dead hold, and the film on whole bars. Lamplit's approved cut (2026-10-22) predates the
+  // first three: with APPROVED_CURSOR its misses are listed, not failed; in any other film they fail.
+  function selfChecks(values = {}) {
+    window.template.seek(ST.s1, values); // the shape's frame size, for the camera
+    const shots = proofShots(), camAt = (t) => camOn(shots.camKeys, t), out = [];
+    const approved = APPROVED_CURSOR && V.name === 'lamplit';
+    const verdict = (name, misses, exempt = true) => out.push({ name, ok: !misses.length || (approved && exempt), detail: misses.length ? `${approved && exempt ? 'approved reference, not failed: ' : ''}${misses.slice(0, 6).join('; ')}` : '' });
+    if (APPROVED_CURSOR && !approved) out.push({ name: 'APPROVED_CURSOR is only for Lamplit\'s approved reference', ok: false, detail: 'delete it, and write every cursor set with clickKeys' });
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const presses = [];
+    for (const s0 of cursorSets(shots, camAt(ST.s1))) for (const p of s0.presses || []) presses.push(p);
+    const setFor = (p) => cursorSets(shots, camAt(p.t)).find((s) => (s.presses || []).some((q) => q.t === p.t));
+    const off = [], moving = [], typing = [];
+    for (const p of presses) {
+      const s = setFor(p), at = cursorOn(s.keys, p.t), [x, y, w, h] = p.rect, hold = p.hold ?? 2 * F;
+      if (at[0] < x || at[0] > x + w || at[1] < y || at[1] > y + h) off.push(`${p.t.toFixed(2)} s: the cursor is off its target`);
+      let drift = 0; for (let tt = p.t - 0.25; tt <= p.t + hold + 1e-9; tt += 1 / FPS) drift = Math.max(drift, dist(cursorOn(s.keys, tt), at));
+      if (drift > 0.5) moving.push(`${p.t.toFixed(2)} s: moves ${drift.toFixed(0)} px in the 0.25 s before the press or during it`);
+      if (p.typing) {
+        if (p.typing[0] < p.t + hold - 1e-6) typing.push(`${p.t.toFixed(2)} s: the words type before the press is over`);
+        const from = Math.max(p.typing[0], p.t + hold + 0.3), still = cursorOn(s.keys, from);
+        let d = 0; for (let tt = from; tt <= p.typing[1] + 1e-9; tt += 1 / FPS) d = Math.max(d, dist(cursorOn(s.keys, tt), still));
+        if (d > 0.5) typing.push(`${p.typing[0].toFixed(2)}–${p.typing[1].toFixed(2)} s: the cursor drifts ${d.toFixed(0)} px while the words type`);
+      }
+    }
+    verdict('every press: the cursor rests still on its target from 0.25 s before it, through the press', [...off, ...moving]);
+    verdict('a field types with the cursor held still beside it', typing);
+    // moves: the camera's glides, whips and cuts, and every cursor travel
+    const moves = [];
+    shots.camKeys.forEach((k, i) => { if (!i) return; if (k[4] === 'cut') moves.push([k[0], k[0], 'a cut']); else if (k[4] !== 'drift') moves.push([shots.camKeys[i - 1][0], k[0], `a camera ${k[4]}`]); });
+    for (const s of cursorSets(shots, camAt(ST.s1))) {
+      const s1 = cursorSets(shots, camAt(s.from)).find((q) => q.from === s.from) || s;
+      // its step aside and its leave after the last press belong to the press, not a new move
+      s1.keys.forEach((k, i) => { if (i && i < s1.keys.length - 1 && k[3] !== 'aside' && dist(k.slice(1, 3), s1.keys[i - 1].slice(1, 3)) > 0.5) moves.push([s1.keys[i - 1][0], k[0], 'a cursor move']); });
+    }
+    const room = [];
+    for (const r of SETTLED) for (const [a, , what] of moves) if (a > r + 0.02 && a < r + 0.9) room.push(`the result at ${r.toFixed(2)} s has ${(a - r).toFixed(2)} s before ${what}`);
+    verdict('about a second on each result before the next move', room);
+    const read = [];
+    for (const [i, [t0, words]] of STEPS().entries()) {
+      const next = STEPS()[i + 1]?.[0] ?? ST.pay, first = presses.map((p) => p.t).filter((t) => t >= t0 && t < next).sort((a, b) => a - b)[0];
+      const need = 0.3 + Math.max(1, 0.25 * String(words).split(/\s+/).filter(Boolean).length);
+      if (first !== undefined && first - t0 < need - 1e-6) read.push(`step ${i + 1}: its caption has ${(first - t0).toFixed(2)} s before the click, ${need.toFixed(2)} s to read`);
+    }
+    verdict('each caption reads before its step\'s first action', read);
+    const events = [ST.s1, ST.pay, ...STEPS().map(([t0]) => t0), ...SETTLED, ...moves.flatMap(([a, b]) => [a, b]), ...cues(V).map((c) => c.t)]
+      .filter((t) => t >= ST.s1 && t <= ST.pay).sort((a, b) => a - b), dead = [];
+    for (let i = 1; i < events.length; i++) if (events[i] - events[i - 1] > 1.8) dead.push(`${events[i - 1].toFixed(2)}–${events[i].toFixed(2)} s`);
+    verdict('no dead hold over 1.8 s in the proof', dead, false);
+    const bars = [];
+    if (Math.abs(DURATION / BAR - Math.round(DURATION / BAR)) > 1e-6) bars.push(`${DURATION} s is not whole bars of ${BAR} s`);
+    if (Math.abs(ST.ask / (BAR / 2) - Math.round(ST.ask / (BAR / 2))) > 1e-6) bars.push(`the ask (${ST.ask} s) is off the half bar`);
+    verdict('the film runs whole bars on the grid', bars, false);
+    return out;
+  }
   const STATES = [[0, 'Hook'], [at(2), 'Turn'], [TU.close, 'Promise'], [ST.s1, 'Runs'], [P.logs, 'Logs'], [ST.s3, 'Replay'], [P.sched, 'Schedule'], [ST.pay, 'Payoff'], [ST.ask, 'Ask']];
   window.template = kit.film({
     fps: FPS, duration: DURATION, sizes: SHAPES, width: W, height: H, defaults: () => ({ size: '16:9', ...DEFAULTS }), fields: FIELDS, states: STATES,
-    prepare, seek: (t, values) => seek(t, values), cues, music,
+    prepare, seek: (t, values) => seek(t, values), cues, music, selfChecks,
     keyTimes: [1.4, 3.5, 4.6, 6.1, 6.8, 8.5, 10.6, 11.8, 12.4, 13.2, 14.8, 16.3, 17.2, 17.9, 18.9, 20.1, 21.1, 21.9, 23.0, 25.3, 27.6, 30.8, 33.9],
   });
   const q = new URLSearchParams(location.search);

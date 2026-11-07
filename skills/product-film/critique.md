@@ -20,10 +20,14 @@ for the picture, once for the sound), and `STORY.md`'s claims.
    seeing it once can process every step: the caption is read before
    anything moves, the element in play is seen on its own before it is
    acted on, nothing is clicked the instant the camera arrives, and each
-   result holds at least a second before the next caption. Check it at every
-   click and every result. If a step is rushed, lengthen the film.
+   result reads for about a second before the next camera or cursor move.
+   Check it at every click and every result. If a step is rushed, lengthen the
+   film a bar; but nothing sits dead for more than about 1.8 s.
 4. **Proof craft:** each step isolates one element, the cursor acts on beats,
    the real UI answers each action, and a page it opens arrives on a cut.
+   Every click is in sync: on the strip around it, the cursor rests still on
+   the target before the press, shrinks on the very frame the app's pressed
+   state shows, and holds through it; never gliding off as it presses.
 5. **Motion:** every travel is fast out of the blocks with a long soft settle;
    whips land soft; nothing stops dead or short; the camera holds still during
    gestures; a state changes only in its own regions.
