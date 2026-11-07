@@ -1,6 +1,10 @@
 ---
 name: product-film
-description: Make a 34-second launch video for a product from its real screens, in five acts (the problem, the promise, four proof steps of the product in action, the result, the ask), with a big cursor, a moving camera, captions and sound, in square, wide and tall. Use when the user asks for a launch video, product video, promo, demo video, teaser or motion graphics for their product, app or website.
+description: >-
+  Launch video from your product's real screens: 34 seconds in five acts (problem, promise, the product at work,
+  result, ask) with a big cursor, a moving camera, captions and sound, in wide, square and tall. Use when the user
+  asks for a launch video, product video, promo, demo video, teaser or motion graphics for their product, app or
+  website.
 ---
 
 # Product film
