@@ -31,7 +31,9 @@
 //         other model has them taken out, or it would read them aloud)
 //     a run: lines that carry one sentence across the picture share "run": "a" ("Make the call, note the reason," /
 //         "and two of them get moving."). They are voiced as one take, so the voice carries on instead of closing each
-//         line, and cut at the take's pauses, one piece a line, each placed at its own start (the founder, 2026-11-06)
+//         line. Keep each line's own punctuation (comma or full stop), never insert an ellipsis: it makes the voice
+//         trail off and can carry the next line's first word backwards. Cut at the pause nearest the word boundary,
+//         one piece a line, each placed at its own start (the founder, 2026-11-07).
 //
 // Takes are saved in <film-dir>/narration/takes/<provider>-<voice>/ and reused while the line, voice and style are
 // unchanged, so a re-render makes no requests and sounds the same; designed voices' IDs are kept in
@@ -61,7 +63,9 @@ const DEFAULT_VOICES = {
   google: { name: 'iris', gender: 'female', description: 'A bright, crisp young woman in her late twenties with a neutral American accent; precise, upbeat and modern, like a product designer narrating her own launch film. Light, clear and natural.' },
   elevenlabs: { name: 'lara', id: 'vChnJZ1Cu89g2XXumPfT', owner: '655db62473dfb65f630c66cab2df71a87da6f912f5ac05ca869b852e1b7f9489' },
 };
-const DEFAULT_STYLE = 'natural, conversational';
+// Google's default direction (the founder, 2026-11-07: Iris with this direction is "passable"; without it the
+// intonation rose and lines trailed into each other). ElevenLabs ignores it.
+const DEFAULT_STYLE = 'Warm and conversational, natural and quietly confident, like a product designer explaining something useful to a colleague. Use clear sentence-final downward falls, never up-talk or a questioning rise. Keep phrases connected and speak at a natural, brisk pace. Respect the written commas and full stops. Each new sentence starts cleanly with its own first word. Never an announcer.';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : fallback; };
@@ -328,7 +332,7 @@ async function takes() {
   // one take so the voice carries on through them, then cut at its pauses, one piece a line
   const units = [];
   for (const l of lines) { const u = units.at(-1); if (l.run && u && u[0].run === l.run) u.push(l); else units.push([l]); }
-  const join = (ls, say) => ls.map((l, i) => i < ls.length - 1 ? say(l).replace(/[\s,;:—–-]+$/u, '') + '...' : say(l)).join(' ');
+  const join = (ls, say) => ls.map((l) => say(l).trim()).join(' ');
   for (const unit of units) {
     const first = unit[0], label = unit.length > 1 ? `${first.run} (${unit.map((l) => l.id).join(', ')})` : first.id;
     const spec = provider === 'google'
@@ -388,7 +392,7 @@ async function takes() {
   return files;
 }
 
-// a run's one take, cut into its lines at its longest pauses (one fewer than its lines), in time order
+// a run's one take, cut into its lines at the pauses nearest their word boundaries, in time order
 // shares: each line's word count, so each cut goes at the pause nearest where the words put it (the longest pause can
 // fall inside a line: "Make the call, | note the reason," took one, 2026-11-07)
 async function splitRun(file, n, label, shares) {
@@ -407,8 +411,10 @@ async function splitRun(file, n, label, shares) {
   for (let i = 0; i < n - 1; i++) {
     acc += shares[i];
     const want = on0 + (on1 - on0) * (acc / total);
-    // the pause after the previous cut nearest the expected point, longer pauses winning a near tie
-    const pick = gaps.filter((g) => g[0] > from0).map((g) => ({ g, cost: Math.abs((g[0] + g[1]) / 2 - want) / 100 - (g[1] - g[0]) / 100 * 0.5 }))
+    // Nearest boundary, not longest pause: a long hesitation inside a phrase isn't a better cut. Leave at least
+    // one pause for each remaining boundary when a run has three or more lines.
+    const pick = gaps.filter((g, j) => g[0] > from0 && gaps.length - j >= n - 1 - i)
+      .map((g) => ({ g, cost: Math.abs((g[0] + g[1]) / 2 - want) }))
       .sort((x, y) => x.cost - y.cost)[0];
     if (!pick) fail(`${label}: no pause left for the cut after line ${i + 1}`);
     cuts.push(pick.g); from0 = pick.g[1];

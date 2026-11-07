@@ -194,7 +194,7 @@ brand colour and mark (with licences), the chosen words, the date.
 
 ## Narrated version (optional)
 
-A second cut of the same film with a voice reading one short line per act
+A second cut of the same film with a voice reading short lines through the acts
 over the song. The music-only films stay the main delivery; the narrated MP4s
 reuse their picture exactly. Make it when the user asks for a voice-over,
 narration or a spoken version. When you show the story for review, you may
@@ -209,8 +209,10 @@ make it unasked, and never in place of the music-only films.
   `export GEMINI_API_KEY=…`. The voice is designed from a written description
   (omnigami's "Iris", or the user's own) and kept in the key's Google project;
   its ID is saved in `film/narration/voices.json`, so later films keep the
-  voice. A film costs about eight requests (one for the voice, one a line), a
-  few hundred characters: pennies. A key's tier sets a daily request limit
+  voice. The default direction is warm and conversational, with connected
+  phrases, downward sentence endings, no up-talk, and each sentence starting
+  cleanly on its own first word. A film costs about eight requests (one for
+  the voice, one a line), a few hundred characters: pennies. A key's tier sets a daily request limit
   (100 a day on Tier 1). The script waits out a per-minute limit and stops at
   the daily one with the takes so far saved; run it again after the reset.
   Never switch it to another model (a "lite" one) to get past a limit: its
@@ -252,19 +254,28 @@ manner, "never an announcer").
 - let the lines run into each other, not a list of statements. After the
   opening problem and promise, a sentence can carry across the steps: "Make
   the call, note the reason," / "and two of them get moving." / "So by
-  Friday, your update's already started;" / "just give it a read, and share
+  Friday, your update's already started." / "Just give it a read, and share
   it." Give the lines of one sentence the same `"run": "a"` (the next one
   `"b"`): they are voiced as one take, so the voice carries on instead of
-  closing each line, and cut at its pauses. Start the first piece late
-  enough that the gap to the next is about half a second;
+  closing each line. Closely connected sentences may share a run too. Keep
+  the line's own punctuation: a comma for a continuing sentence, a full stop
+  and a capital first word for a new sentence. Never
+  join lines with "..." or "…": the voice trails off, pauses oddly, or carries
+  the next line's first word onto the previous one. The script joins them
+  with a space, estimates boundaries from word counts, and cuts at the nearest
+  pause, never just the longest one. Check each cut: the next line must start
+  with its own first word ("Just give", never "give" after an earlier "just"). Reject and
+  redo a take with words across a cut or a pause inside a phrase. Start the
+  first piece late enough that the gap to the next is about half a second;
 - plain, concrete words for what happens on screen ("two of them get
-  moving", "give it a read, and share it"). No tagline phrasing after the
-  opening ("one clear week" once is enough), no people's names from the
-  sample data, and short lines in the steps (four to eight words);
+  moving", "give it a read, and share it"). Keep tagline phrasing out of the
+  proof steps, use no people's names from the sample data, and keep lines in
+  the steps short (four to eight words where possible);
 - each line's `window` is its act's times from `STORY.md`. Size the line to
   the act at about 2.5 words a second, so it ends well before the next act.
   Speech is never sped up: when a take is too long, cut words;
-- no spoken ask. The narration ends on the result line, and the ask stays
+- no spoken ask. End on the result, optionally followed by a short benefit
+  line across the end card, with a natural breath between them. The ask stays
   music and picture ("Try it" sounds insincere in every voice);
 - the name said right: find how the company says it (its site, videos,
   docs) and ask the user if it's ambiguous. In an unattended run, take the
@@ -273,6 +284,29 @@ manner, "never an announcer").
 - on ElevenLabs with a designed voice (eleven_v3), an audio tag such as
   `[warmly]` (in the line's `say`) softens a line that comes out harsh. Lara's
   model has no tags (narrate.mjs takes them out); `--redo` the line instead.
+
+**Lamplit narrated example (34 seconds, wide):** the approved script in
+`reference/narration/script.json` uses Lara (`vChnJZ1Cu89g2XXumPfT`) on
+`eleven_v4`. The first two sentences share the `opening` run; the next three
+share `proof`. Each run keeps the written full stops and space joins. The
+result and tagline are separate takes. These are the exact lines and measured
+placements of the approved take; adapt the words and windows to your product.
+
+| Id | Run | Window (s) | Start (s) | Clip ends (s) | Exact line |
+| --- | --- | --- | ---: | ---: | --- |
+| problem | opening | 0–4 | 0.120 | 3.776 | A broken background job shouldn't turn into another sleepless night. |
+| promise | opening | 4–10 | 4.120 | 7.998 | With Lamplit, one command gets your jobs running where you can see them. |
+| follow | proof | 10–13.5 | 10.080 | 12.868 | Follow a job from its first step to its last. |
+| replay | proof | 13.5–20.5 | 13.580 | 18.119 | See exactly where it failed and replay it from there without redoing the rest. |
+| schedule | proof | 20.5–26 | 20.620 | 24.422 | Then tell it when to run in plain words and check the next dates. |
+| result | separate | 26–29 | 26.100 | 27.804 | And you sleep through the night. |
+| tagline | separate | 28.374–34 | 28.374 | 30.797 | Less guesswork, more confidence. |
+
+The tagline's `endBy` is 32 s and the song's `land` is 34 s. The measured
+breath between “night” and “Less” is **700 ms** (27.73–28.43 s): the guarded
+audio clips have a 570 ms gap. The end card runs 29–34 s and holds 3.203 s
+after the tagline's clip ends. Preserve that breath when placing cached takes;
+a fresh TTS take can have different timing and must be checked again.
 
 **Make it:**
 
