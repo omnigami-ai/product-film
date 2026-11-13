@@ -1,6 +1,6 @@
 # Product film · omnigami
 
-A 34-second launch film of your real product, in every shape.
+A launch film of your real product, in every shape.
 
 Give it your URL. It reads your site, writes one short story in your own words, captures your real screens, and shows your product doing its job, with a cursor and a camera that follows it. You get MP4s in wide, square and tall, and a film you can still edit. A narrated version is optional.
 
